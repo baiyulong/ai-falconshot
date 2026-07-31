@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/capture-core",
+    "crates/overlay-core",
+    "crates/floating-core",
+    "crates/annotation-core",
+    "crates/image-core",
+    "crates/clipboard-core",
+    "crates/hotkey-core",
+    "crates/ocr-core",
+    "crates/ai-core",
+    "crates/privacy-core",
+    "crates/storage-core",
+    "crates/settings-core",
+    "platform/windows",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["FalconShot Team"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+anyhow = "1"
+image = "0.25"
+imageproc = "0.25"
+regex = "1"
+async-trait = "0.1"

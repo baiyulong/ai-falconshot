@@ -1,0 +1,28 @@
+[package]
+name = "falconshot-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+serde.workspace = true
+serde_json.workspace = true
+capture-core = { path = "../../../crates/capture-core" }
+overlay-core = { path = "../../../crates/overlay-core" }
+floating-core = { path = "../../../crates/floating-core" }
+annotation-core = { path = "../../../crates/annotation-core" }
+image-core = { path = "../../../crates/image-core" }
+clipboard-core = { path = "../../../crates/clipboard-core" }
+hotkey-core = { path = "../../../crates/hotkey-core" }
+ocr-core = { path = "../../../crates/ocr-core" }
+ai-core = { path = "../../../crates/ai-core" }
+privacy-core = { path = "../../../crates/privacy-core" }
+storage-core = { path = "../../../crates/storage-core" }
+settings-core = { path = "../../../crates/settings-core" }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

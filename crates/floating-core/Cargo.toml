@@ -1,0 +1,13 @@
+[package]
+name = "floating-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+capture-core = { path = "../capture-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
