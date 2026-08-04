@@ -1,5 +1,5 @@
 pub mod selection;
 pub mod types;
 
-pub use selection::SelectionModel;
+pub use selection::{DragHandle, SelectionModel};
 pub use types::*;

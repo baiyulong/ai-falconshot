@@ -1,5 +1,7 @@
+pub mod json_backend;
 pub mod types;
 
+pub use json_backend::JsonSettingsBackend;
 pub use types::*;
 
 use anyhow::Result;

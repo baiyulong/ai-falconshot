@@ -11,6 +11,8 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
 serde.workspace = true
 serde_json.workspace = true
+image.workspace = true
+tokio.workspace = true
 capture-core = { path = "../../../crates/capture-core" }
 overlay-core = { path = "../../../crates/overlay-core" }
 floating-core = { path = "../../../crates/floating-core" }
@@ -23,6 +25,7 @@ ai-core = { path = "../../../crates/ai-core" }
 privacy-core = { path = "../../../crates/privacy-core" }
 storage-core = { path = "../../../crates/storage-core" }
 settings-core = { path = "../../../crates/settings-core" }
+platform-windows = { path = "../../../platform/windows" }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

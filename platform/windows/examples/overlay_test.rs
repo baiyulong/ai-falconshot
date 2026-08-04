@@ -1,0 +1,21 @@
+use platform_windows::overlay::{OverlayResult, WindowsOverlay};
+
+fn main() {
+    println!("FalconShot Overlay PoC");
+    println!("Drag to select a region. Esc to cancel, Enter to confirm.");
+    println!("Starting overlay in 2 seconds...");
+    std::thread::sleep(std::time::Duration::from_secs(2));
+
+    let mut overlay = WindowsOverlay::new();
+    match overlay.show_and_select() {
+        Ok(OverlayResult::Selected(rect)) => {
+            println!("Selected region: {}x{} at ({},{})", rect.width, rect.height, rect.x, rect.y);
+        }
+        Ok(OverlayResult::Cancelled) => {
+            println!("Selection cancelled.");
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+        }
+    }
+}

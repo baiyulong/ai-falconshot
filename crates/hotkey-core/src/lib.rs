@@ -1,5 +1,7 @@
+pub mod manager;
 pub mod types;
 
+pub use manager::{default_bindings, HotkeyManager};
 pub use types::*;
 
 use anyhow::Result;

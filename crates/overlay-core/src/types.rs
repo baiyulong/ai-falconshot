@@ -1,3 +1,4 @@
+use capture_core::Rect;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,4 +32,55 @@ impl Default for OverlayConfig {
             magnifier_zoom: 4.0,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct MagnifierState {
+    pub x: i32,
+    pub y: i32,
+    pub pixel_color: [u8; 4],
+    pub visible: bool,
+}
+
+impl MagnifierState {
+    pub fn new() -> Self {
+        Self {
+            x: 0,
+            y: 0,
+            pixel_color: [0, 0, 0, 255],
+            visible: false,
+        }
+    }
+
+    pub fn hex_color(&self) -> String {
+        format!(
+            "#{:02X}{:02X}{:02X}",
+            self.pixel_color[0], self.pixel_color[1], self.pixel_color[2]
+        )
+    }
+}
+
+impl Default for MagnifierState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectedWindow {
+    pub rect: Rect,
+    pub title: String,
+    pub is_hovered: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OverlayAction {
+    None,
+    Selecting,
+    Resizing,
+    Moving,
+    WindowHover,
+    ColorPicking,
+    Confirmed,
+    Cancelled,
 }
