@@ -33,6 +33,10 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    invoke("set_window_decorations", { decorated: !editorImage }).catch(() => {});
+  }, [editorImage]);
+
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       <nav className="w-48 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 flex flex-col">

@@ -1,6 +1,6 @@
 mod commands;
 
-use commands::{ai, capture, history, ocr, settings};
+use commands::{ai, capture, history, ocr, settings, window};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -23,6 +23,8 @@ pub fn run() {
             settings::save_settings,
             history::get_history,
             history::clear_history,
+            window::set_window_decorations,
+            window::start_window_drag,
         ])
         .setup(|app| {
             let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;

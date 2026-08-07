@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import ReactMarkdown, { type Components } from "react-markdown";
 
 type AnnotationTool = "rect" | "arrow" | "pen" | "text" | "highlighter";
 
@@ -41,6 +42,29 @@ const AI_TEMPLATES = [
   { id: "error", label: "分析报错", prompt: "请分析这张截图中的报错信息，给出原因分析和排查步骤。" },
   { id: "table", label: "提取表格", prompt: "请提取这张截图中的表格数据，以 Markdown 格式输出。" },
 ];
+
+const EXTRACT_PROMPT =
+  "请提取这张图片中的所有文字内容，按原有段落和层次输出。如果图片中包含表格，必须将表格转换为 Markdown 表格格式。只输出提取的内容本身，不要添加任何解释或额外说明。";
+
+const MARKDOWN_COMPONENTS: Components = {
+  table: ({ node, ...props }) => <table className="my-2 w-full border-collapse text-sm" {...props} />,
+  th: ({ node, ...props }) => (
+    <th className="border border-gray-600 bg-gray-800 px-2 py-1 text-left" {...props} />
+  ),
+  td: ({ node, ...props }) => <td className="border border-gray-600 px-2 py-1 align-top" {...props} />,
+  p: ({ node, ...props }) => <p className="my-1.5 leading-relaxed" {...props} />,
+  ul: ({ node, ...props }) => <ul className="my-1.5 list-disc pl-5" {...props} />,
+  ol: ({ node, ...props }) => <ol className="my-1.5 list-decimal pl-5" {...props} />,
+  pre: ({ node, ...props }) => (
+    <pre className="my-1.5 overflow-x-auto rounded bg-black/40 p-2 font-mono text-xs" {...props} />
+  ),
+  h1: ({ node, ...props }) => <h1 className="my-2 text-base font-bold" {...props} />,
+  h2: ({ node, ...props }) => <h2 className="my-2 text-sm font-bold" {...props} />,
+  h3: ({ node, ...props }) => <h3 className="my-1.5 text-sm font-semibold" {...props} />,
+  blockquote: ({ node, ...props }) => (
+    <blockquote className="my-1.5 border-l-2 border-gray-600 pl-2 text-gray-400" {...props} />
+  ),
+};
 
 const TOOLS: { id: AnnotationTool; icon: ReactNode; title: string }[] = [
   {
@@ -122,6 +146,7 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
   const [aiLoading, setAiLoading] = useState(false);
   const [panelError, setPanelError] = useState("");
   const [panelCopied, setPanelCopied] = useState(false);
+  const [widthMenuOpen, setWidthMenuOpen] = useState(false);
 
   useEffect(() => {
     invoke<number[]>("read_file_bytes", { path: imagePath }).then((bytes) => {
@@ -159,6 +184,19 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
   useEffect(() => {
     render();
   }, [render]);
+
+  useEffect(() => {
+    if (!widthMenuOpen) return;
+    const close = () => setWidthMenuOpen(false);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [widthMenuOpen]);
+
+  function onToolbarMouseDown(e: React.MouseEvent) {
+    if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    invoke("start_window_drag").catch(() => {});
+  }
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -396,6 +434,23 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
     }
   }
 
+  async function runAiExtract() {
+    setAiLoading(true);
+    setPanelError("");
+    setAiResponse(null);
+    setOcrResult(null);
+    setAiPanelOpen(true);
+    try {
+      await flushCanvasToDisk();
+      const json = await invoke<string>("analyze_image", { imagePath, prompt: EXTRACT_PROMPT });
+      setAiResponse(JSON.parse(json));
+    } catch (e) {
+      setPanelError(String(e));
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   async function copyPanelText() {
     const text = ocrResult?.text || aiResponse?.content;
     if (!text) return;
@@ -407,17 +462,20 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-4 py-2 bg-gray-900 border-b border-gray-700 flex-wrap">
+      <div
+        onMouseDown={onToolbarMouseDown}
+        className="flex items-center gap-3 px-4 py-2 bg-gray-900 border-b border-gray-700 flex-wrap"
+      >
         <div className="flex gap-1">
           {TOOLS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTool(t.id)}
               title={t.title}
-              className={`p-2 rounded ${
+              className={`p-1.5 ${
                 tool === t.id
-                  ? "bg-primary text-white"
-                  : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  ? "text-primary"
+                  : "text-gray-400 hover:text-white"
               }`}
             >
               {t.icon}
@@ -442,20 +500,39 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
 
         <div className="w-px h-6 bg-gray-600" />
 
-        <div className="flex gap-1 items-center">
-          {WIDTHS.map((w) => (
-            <button
-              key={w}
-              onClick={() => setStrokeWidth(w)}
-              className={`px-2 py-1 text-xs rounded ${
-                strokeWidth === w
-                  ? "bg-primary text-white"
-                  : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-              }`}
-            >
-              {w}px
-            </button>
-          ))}
+        <div className="relative">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setWidthMenuOpen((o) => !o);
+            }}
+            title="线条粗细"
+            className="flex items-center gap-1 px-1.5 py-1 text-gray-400 hover:text-white"
+          >
+            <div className="w-8 rounded-full bg-current" style={{ height: strokeWidth }} />
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M1 3 L4 6 L7 3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {widthMenuOpen && (
+            <div className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded shadow-lg py-1">
+              {WIDTHS.map((w) => (
+                <button
+                  key={w}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setStrokeWidth(w);
+                    setWidthMenuOpen(false);
+                  }}
+                  className={`flex items-center justify-center w-16 h-8 hover:bg-gray-700 ${
+                    strokeWidth === w ? "text-primary" : "text-gray-300 hover:text-white"
+                  }`}
+                >
+                  <div className="w-10 rounded-full bg-current" style={{ height: w }} />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="w-px h-6 bg-gray-600" />
@@ -465,7 +542,7 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
             onClick={undo}
             disabled={objects.length === 0}
             title="撤销 (Ctrl+Z)"
-            className="p-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 disabled:opacity-40"
+            className="p-1.5 text-gray-400 hover:text-white disabled:opacity-30"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M3 7 L7 3 M3 7 L7 11 M3 7 H11 C13 7 14 9 13 11" strokeLinecap="round" strokeLinejoin="round" />
@@ -475,7 +552,7 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
             onClick={redo}
             disabled={redoStack.length === 0}
             title="重做 (Ctrl+Y)"
-            className="p-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 disabled:opacity-40"
+            className="p-1.5 text-gray-400 hover:text-white disabled:opacity-30"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M13 7 L9 3 M13 7 L9 11 M13 7 H5 C3 7 2 9 3 11" strokeLinecap="round" strokeLinejoin="round" />
@@ -490,7 +567,7 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
             onClick={runOcr}
             disabled={ocrLoading}
             title="OCR 文字识别"
-            className="p-2 bg-purple-600 text-white rounded hover:bg-purple-500 disabled:opacity-50"
+            className="p-1.5 text-purple-400 hover:text-purple-300 disabled:opacity-30"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M2 5 V3 C2 2 2 2 3 2 H5 M11 2 H13 C14 2 14 2 14 3 V5 M14 11 V13 C14 14 14 14 13 14 H11 M5 14 H3 C2 14 2 14 2 13 V11" strokeLinecap="round" />
@@ -500,13 +577,27 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
             </svg>
           </button>
           <button
+            onClick={runAiExtract}
+            disabled={aiLoading}
+            title="AI 识别文字（表格转 Markdown）"
+            className="p-1.5 text-emerald-400 hover:text-emerald-300 disabled:opacity-30"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="2" y="2" width="12" height="12" rx="1" />
+              <line x1="2" y1="6" x2="14" y2="6" />
+              <line x1="6" y1="6" x2="6" y2="14" />
+              <line x1="10" y1="6" x2="10" y2="14" />
+              <line x1="4" y1="4" x2="8" y2="4" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button
             onClick={() => {
               setAiPanelOpen(true);
               setOcrResult(null);
               setPanelError("");
             }}
             title="AI 分析"
-            className="p-2 bg-indigo-600 text-white rounded hover:bg-indigo-500"
+            className="p-1.5 text-indigo-400 hover:text-indigo-300"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M8 1.5 L9.3 5.7 L13.5 7 L9.3 8.3 L8 12.5 L6.7 8.3 L2.5 7 L6.7 5.7 Z" strokeLinejoin="round" />
@@ -520,7 +611,7 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
             onClick={copy}
             disabled={saving}
             title="复制到剪贴板"
-            className="p-2 bg-green-600 text-white rounded hover:bg-green-500 disabled:opacity-50"
+            className="p-1.5 text-green-400 hover:text-green-300 disabled:opacity-30"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="5" y="5" width="9" height="9" rx="1" />
@@ -531,7 +622,7 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
             onClick={save}
             disabled={saving}
             title="保存"
-            className="p-2 bg-primary text-white rounded hover:bg-primary/90 disabled:opacity-50"
+            className="p-1.5 text-primary hover:text-primary/80 disabled:opacity-30"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M3 2 H11 L14 5 V13 C14 14 14 14 13 14 H3 C2 14 2 14 2 13 V3 C2 2 2 2 3 2 Z" />
@@ -542,7 +633,7 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
           <button
             onClick={onClose}
             title="关闭"
-            className="p-2 bg-gray-600 text-white rounded hover:bg-gray-500"
+            className="p-1.5 text-gray-400 hover:text-red-400"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
               <line x1="3" y1="3" x2="13" y2="13" strokeLinecap="round" />
@@ -596,6 +687,10 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
               )}
 
               {ocrLoading && <p className="text-sm text-gray-400">识别中...</p>}
+
+              {!ocrLoading && aiLoading && !aiResponse && (
+                <p className="text-sm text-gray-400">AI 处理中，请稍候...</p>
+              )}
 
               {ocrResult && (
                 <>
@@ -664,8 +759,10 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
                         </button>
                       </div>
                       <div className="p-3 bg-gray-800 rounded border border-gray-700">
-                        <div className="whitespace-pre-wrap text-sm text-gray-100">
-                          {aiResponse.content}
+                        <div className="text-sm text-gray-100">
+                          <ReactMarkdown components={MARKDOWN_COMPONENTS}>
+                            {aiResponse.content}
+                          </ReactMarkdown>
                         </div>
                       </div>
                     </>
