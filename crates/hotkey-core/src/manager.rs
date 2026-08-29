@@ -1,4 +1,4 @@
-use crate::types::{HotkeyAction, HotkeyBinding, KeyCombo, KeyCode};
+use crate::types::{HotkeyAction, HotkeyBinding, KeyCode, KeyCombo};
 use crate::HotkeyBackend;
 use anyhow::Result;
 use std::collections::HashMap;

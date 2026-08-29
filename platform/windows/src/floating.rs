@@ -5,7 +5,9 @@ use std::path::Path;
 #[cfg(windows)]
 mod win {
     use super::*;
+    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{HWND, POINT, SIZE};
+    use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
         CreateCompatibleDC, DeleteDC, DeleteObject, SelectObject, BITMAPINFO, BITMAPINFOHEADER,
         BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS,
@@ -13,13 +15,11 @@ mod win {
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, RegisterClassExW,
-        SetWindowLongPtrW, SetWindowPos, ShowWindow, UpdateLayeredWindow, GWL_EXSTYLE,
-        HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, WM_DESTROY,
-        WM_NCHITTEST, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
-        HTCAPTION, ULW_ALPHA,
+        SetWindowLongPtrW, SetWindowPos, ShowWindow, UpdateLayeredWindow, GWL_EXSTYLE, HTCAPTION,
+        HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, ULW_ALPHA,
+        WM_DESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_TOPMOST,
+        WS_EX_TRANSPARENT, WS_POPUP,
     };
-    use windows::core::PCWSTR;
-    use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 
     pub struct WindowsFloatingWindow {
         state: FloatingState,
@@ -27,6 +27,77 @@ mod win {
     }
 
     unsafe impl Send for WindowsFloatingWindow {}
+
+    impl Default for WindowsFloatingWindow {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    /// Margin (device px) added around a pinned image for its glowing border.
+    const PIN_GLOW_MARGIN: u32 = 10;
+    const PIN_ACCENT: [u8; 3] = [0, 174, 255]; // #00AEFF
+
+    /// Expand the capture with a 1px accent border and an alpha glow that
+    /// fades outward. Channels are premultiplied for UpdateLayeredWindow.
+    fn decorate_pin(image: image::RgbaImage) -> image::RgbaImage {
+        let (w, h) = image.dimensions();
+        let m = PIN_GLOW_MARGIN;
+        let (ew, eh) = (w + 2 * m, h + 2 * m);
+        let mut out = image::RgbaImage::new(ew, eh);
+
+        for ey in 0..eh {
+            for ex in 0..ew {
+                // Chebyshev distance outside the image rect (0 = on image).
+                let dx = if ex < m {
+                    (m - ex) as i32
+                } else if ex >= m + w {
+                    (ex - m - w + 1) as i32
+                } else {
+                    0
+                };
+                let dy = if ey < m {
+                    (m - ey) as i32
+                } else if ey >= m + h {
+                    (ey - m - h + 1) as i32
+                } else {
+                    0
+                };
+                let d = dx.max(dy);
+
+                let pixel = if d == 0 {
+                    // On the image: tint the outermost pixel ring with the
+                    // accent color so the border reads as crisp.
+                    let ix = ex - m;
+                    let iy = ey - m;
+                    let mut px = *image.get_pixel(ix, iy);
+                    let on_edge = ix == 0 || iy == 0 || ix == w - 1 || iy == h - 1;
+                    if on_edge {
+                        for c in 0..3 {
+                            px[c] = ((px[c] as u32 * 6 + PIN_ACCENT[c] as u32 * 4) / 10) as u8;
+                        }
+                    }
+                    px
+                } else if d == 1 {
+                    // Solid 1px accent ring just outside the image.
+                    image::Rgba([PIN_ACCENT[0], PIN_ACCENT[1], PIN_ACCENT[2], 255])
+                } else {
+                    // Halo fading outward, premultiplied alpha.
+                    let t = (d - 1) as f32 / m as f32;
+                    let a = (0.5 * (1.0 - t) * 255.0) as u8;
+                    let k = a as u32;
+                    image::Rgba([
+                        ((PIN_ACCENT[0] as u32 * k) / 255) as u8,
+                        ((PIN_ACCENT[1] as u32 * k) / 255) as u8,
+                        ((PIN_ACCENT[2] as u32 * k) / 255) as u8,
+                        a,
+                    ])
+                };
+                out.put_pixel(ex, ey, pixel);
+            }
+        }
+        out
+    }
 
     impl WindowsFloatingWindow {
         pub fn new() -> Self {
@@ -67,7 +138,7 @@ mod win {
             bmi.bmiHeader.biHeight = -(height as i32);
             bmi.bmiHeader.biPlanes = 1;
             bmi.bmiHeader.biBitCount = 32;
-            bmi.bmiHeader.biCompression = BI_RGB.0 as u32;
+            bmi.bmiHeader.biCompression = BI_RGB.0;
 
             let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
             let hbitmap = windows::Win32::Graphics::Gdi::CreateDIBSection(
@@ -140,7 +211,13 @@ mod win {
                     .map_err(|e| anyhow::anyhow!("Failed to open image: {}", e))?
                     .to_rgba8();
 
+                // Expand the image with a glowing 1px border + halo so the
+                // pinned capture stands out from the desktop behind it.
+                let image = decorate_pin(image);
                 let (width, height) = image.dimensions();
+                // The glow margin grows the window around the requested rect.
+                self.state.x -= PIN_GLOW_MARGIN as i32;
+                self.state.y -= PIN_GLOW_MARGIN as i32;
                 self.state.width = width;
                 self.state.height = height;
 
@@ -155,11 +232,16 @@ mod win {
                 ) -> LRESULT {
                     unsafe {
                         match msg {
+                            // The whole pinned image drags like a title bar.
                             WM_NCHITTEST => LRESULT(HTCAPTION as isize),
-                            WM_DESTROY => {
-                                windows::Win32::UI::WindowsAndMessaging::PostQuitMessage(0);
+                            // Double-click closes the pinned image. Never post
+                            // WM_QUIT here: pin windows share the app's main
+                            // thread event loop.
+                            WM_NCLBUTTONDBLCLK => {
+                                let _ = DestroyWindow(hwnd);
                                 LRESULT(0)
                             }
+                            WM_DESTROY => DefWindowProcW(hwnd, msg, wparam, lparam),
                             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
                         }
                     }

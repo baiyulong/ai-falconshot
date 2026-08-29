@@ -99,7 +99,13 @@ impl ColorPicker {
         Some(color)
     }
 
-    pub fn average_color(&self, image: &RgbaImage, x: u32, y: u32, radius: u32) -> Option<PixelColor> {
+    pub fn average_color(
+        &self,
+        image: &RgbaImage,
+        x: u32,
+        y: u32,
+        radius: u32,
+    ) -> Option<PixelColor> {
         let mut r_sum: u64 = 0;
         let mut g_sum: u64 = 0;
         let mut b_sum: u64 = 0;

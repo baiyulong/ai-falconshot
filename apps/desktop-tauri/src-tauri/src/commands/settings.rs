@@ -1,4 +1,6 @@
+use crate::apply_screenshot_hotkey;
 use settings_core::{AppSettings, JsonSettingsBackend, SettingsBackend};
+use tauri::AppHandle;
 
 fn backend() -> JsonSettingsBackend {
     JsonSettingsBackend::new(JsonSettingsBackend::default_path())
@@ -11,7 +13,13 @@ pub async fn get_settings() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn save_settings(settings_json: String) -> Result<(), String> {
+pub async fn save_settings(app: AppHandle, settings_json: String) -> Result<(), String> {
     let settings: AppSettings = serde_json::from_str(&settings_json).map_err(|e| e.to_string())?;
-    backend().save(&settings).map_err(|e| e.to_string())
+    backend().save(&settings).map_err(|e| e.to_string())?;
+    let hotkey = if settings.hotkeys.paused {
+        "" // clears the registration while hotkeys are paused
+    } else {
+        &settings.hotkeys.screenshot
+    };
+    apply_screenshot_hotkey(&app, hotkey)
 }

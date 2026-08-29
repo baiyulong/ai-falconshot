@@ -45,7 +45,12 @@ impl SelectionModel {
             return;
         }
         let (ax, ay) = self.anchor;
-        self.rect = Rect::new(ax.min(x), ay.min(y), (x - ax).unsigned_abs(), (y - ay).unsigned_abs());
+        self.rect = Rect::new(
+            ax.min(x),
+            ay.min(y),
+            (x - ax).unsigned_abs(),
+            (y - ay).unsigned_abs(),
+        );
     }
 
     pub fn end_drag(&mut self) {
@@ -113,14 +118,34 @@ impl SelectionModel {
         let mut bottom = self.rect.bottom();
 
         match handle {
-            DragHandle::TopLeft => { left = x; top = y; }
-            DragHandle::TopRight => { right = x; top = y; }
-            DragHandle::BottomLeft => { left = x; bottom = y; }
-            DragHandle::BottomRight => { right = x; bottom = y; }
-            DragHandle::Top => { top = y; }
-            DragHandle::Bottom => { bottom = y; }
-            DragHandle::Left => { left = x; }
-            DragHandle::Right => { right = x; }
+            DragHandle::TopLeft => {
+                left = x;
+                top = y;
+            }
+            DragHandle::TopRight => {
+                right = x;
+                top = y;
+            }
+            DragHandle::BottomLeft => {
+                left = x;
+                bottom = y;
+            }
+            DragHandle::BottomRight => {
+                right = x;
+                bottom = y;
+            }
+            DragHandle::Top => {
+                top = y;
+            }
+            DragHandle::Bottom => {
+                bottom = y;
+            }
+            DragHandle::Left => {
+                left = x;
+            }
+            DragHandle::Right => {
+                right = x;
+            }
             DragHandle::Move => {
                 let dx = x - self.anchor.0;
                 let dy = y - self.anchor.1;

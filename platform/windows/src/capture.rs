@@ -78,7 +78,7 @@ mod win {
                 bmi.bmiHeader.biHeight = -height; // top-down
                 bmi.bmiHeader.biPlanes = 1;
                 bmi.bmiHeader.biBitCount = 32;
-                bmi.bmiHeader.biCompression = BI_RGB.0 as u32;
+                bmi.bmiHeader.biCompression = BI_RGB.0;
 
                 let buf_size = (width * height * 4) as usize;
                 let mut buffer: Vec<u8> = vec![0; buf_size];
@@ -146,7 +146,11 @@ mod win {
             monitors
                 .into_iter()
                 .find(|m| m.is_primary)
-                .or_else(|| self.enumerate_monitors().ok().and_then(|m| m.into_iter().next()))
+                .or_else(|| {
+                    self.enumerate_monitors()
+                        .ok()
+                        .and_then(|m| m.into_iter().next())
+                })
                 .context("No monitor found")
         }
 
@@ -207,8 +211,7 @@ mod win {
                         let mut info = MONITORINFOEXW::default();
                         info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
 
-                        let info_ptr =
-                            &mut info as *mut MONITORINFOEXW as *mut MONITORINFO;
+                        let info_ptr = &mut info as *mut MONITORINFOEXW as *mut MONITORINFO;
 
                         if !GetMonitorInfoW(hmonitor, info_ptr).as_bool() {
                             return windows::core::BOOL(1);
@@ -216,8 +219,7 @@ mod win {
 
                         let rc = info.monitorInfo.rcMonitor;
                         let wa = info.monitorInfo.rcWork;
-                        let is_primary =
-                            info.monitorInfo.dwFlags & MONITOR_DEFAULTTOPRIMARY.0 != 0;
+                        let is_primary = info.monitorInfo.dwFlags & MONITOR_DEFAULTTOPRIMARY.0 != 0;
 
                         let name_end = info
                             .szDevice
@@ -228,12 +230,8 @@ mod win {
 
                         let mut dpi_x: u32 = 96;
                         let mut dpi_y: u32 = 96;
-                        let _ = GetDpiForMonitor(
-                            hmonitor,
-                            MDT_EFFECTIVE_DPI,
-                            &mut dpi_x,
-                            &mut dpi_y,
-                        );
+                        let _ =
+                            GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y);
 
                         let scale_factor = dpi_x as f64 / 96.0;
 
@@ -284,8 +282,7 @@ mod win {
                         if IsWindowVisible(hwnd).as_bool() {
                             let mut title_buf = [0u16; 256];
                             let title_len = GetWindowTextW(hwnd, &mut title_buf);
-                            let title =
-                                String::from_utf16_lossy(&title_buf[..title_len as usize]);
+                            let title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
 
                             if title.is_empty() {
                                 return windows::core::BOOL(1);
@@ -423,7 +420,10 @@ mod tests {
         fn enumerate_windows_returns_visible_windows() {
             let backend = WindowsCaptureBackend::new().unwrap();
             let windows = backend.enumerate_windows().unwrap();
-            assert!(!windows.is_empty(), "Should have at least one visible window");
+            assert!(
+                !windows.is_empty(),
+                "Should have at least one visible window"
+            );
 
             for w in &windows {
                 assert!(w.is_visible);
@@ -488,7 +488,10 @@ mod tests {
             };
             let frame = backend.capture_region(&options).unwrap();
 
-            let has_nonzero = frame.image.pixels().any(|p| p[0] != 0 || p[1] != 0 || p[2] != 0);
+            let has_nonzero = frame
+                .image
+                .pixels()
+                .any(|p| p[0] != 0 || p[1] != 0 || p[2] != 0);
             assert!(has_nonzero, "Captured image should not be entirely black");
         }
 

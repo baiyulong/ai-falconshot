@@ -21,17 +21,12 @@ image-core = { path = "../../../crates/image-core" }
 clipboard-core = { path = "../../../crates/clipboard-core" }
 hotkey-core = { path = "../../../crates/hotkey-core" }
 ocr-core = { path = "../../../crates/ocr-core" }
-ai-core = { path = "../../../crates/ai-core" }
 privacy-core = { path = "../../../crates/privacy-core" }
 storage-core = { path = "../../../crates/storage-core" }
 settings-core = { path = "../../../crates/settings-core" }
 platform-windows = { path = "../../../platform/windows" }
-
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = [
-    "Win32_Foundation",
-    "Win32_UI_WindowsAndMessaging",
-] }
+urlencoding = "2"
+tauri-plugin-global-shortcut = "2.3.2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

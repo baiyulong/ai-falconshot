@@ -1,58 +1,71 @@
-use tauri::Window;
+use floating_core::{FloatingState, FloatingWindow, TransformState};
+use platform_windows::floating::WindowsFloatingWindow;
+use std::sync::{Mutex, OnceLock};
+use tauri::{AppHandle, WebviewWindow};
+/// Live pinned images. Windows are created on the app's main thread (so the
+/// Tauri event loop pumps their messages) and kept here for the app lifetime.
+static PINS: OnceLock<Mutex<Vec<WindowsFloatingWindow>>> = OnceLock::new();
 
-#[cfg(windows)]
-#[tauri::command]
-pub fn set_window_decorations(window: Window, decorated: bool) -> Result<(), String> {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongW, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE,
-        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WS_CAPTION,
-        WS_EX_CLIENTEDGE, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
-        WS_OVERLAPPEDWINDOW, WS_SYSMENU, WS_THICKFRAME,
-    };
-
-    let raw = window.hwnd().map_err(|e| e.to_string())?;
-    let hwnd = HWND(raw.0);
-
-    unsafe {
-        if decorated {
-            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-            SetWindowLongW(hwnd, GWL_STYLE, (style | WS_OVERLAPPEDWINDOW.0) as i32);
-            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-            SetWindowLongW(
-                hwnd,
-                GWL_EXSTYLE,
-                (ex | WS_EX_WINDOWEDGE.0 | WS_EX_CLIENTEDGE.0) as i32,
-            );
-        } else {
-            let remove =
-                WS_CAPTION.0 | WS_THICKFRAME.0 | WS_SYSMENU.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0;
-            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-            SetWindowLongW(hwnd, GWL_STYLE, (style & !remove) as i32);
-            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-            SetWindowLongW(hwnd, GWL_EXSTYLE, (ex & !(WS_EX_WINDOWEDGE.0 | WS_EX_CLIENTEDGE.0)) as i32);
-        }
-        SetWindowPos(
-            hwnd,
-            Some(HWND::default()),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+fn pins() -> &'static Mutex<Vec<WindowsFloatingWindow>> {
+    PINS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-#[cfg(not(windows))]
-#[tauri::command]
-pub fn set_window_decorations(window: Window, decorated: bool) -> Result<(), String> {
-    window.set_decorations(decorated).map_err(|e| e.to_string())
+fn next_pin_id() -> String {
+    format!(
+        "pin-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    )
 }
 
 #[tauri::command]
-pub fn start_window_drag(window: Window) -> Result<(), String> {
+pub fn start_window_drag(window: WebviewWindow) -> Result<(), String> {
     window.start_dragging().map_err(|e| e.to_string())
+}
+
+/// Close the editor window. Focus returns to whatever window was behind it;
+/// the main window stays where the user left it (shown only from the tray).
+#[tauri::command]
+pub fn close_editor(window: WebviewWindow) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
+}
+
+/// Pin the edited capture as an always-on-top draggable floating image.
+/// (x, y, width, height) is the image rect in physical screen coordinates.
+#[tauri::command]
+pub async fn pin_image(
+    app: AppHandle,
+    path: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
+    app.run_on_main_thread(move || {
+        let mut pin = WindowsFloatingWindow::new();
+        let state = FloatingState {
+            id: next_pin_id(),
+            image_path: String::new(),
+            x,
+            y,
+            width: width.max(1) as u32,
+            height: height.max(1) as u32,
+            transform: TransformState::default(),
+            opacity: 1.0,
+            always_on_top: true,
+            mouse_passthrough: false,
+            locked_position: false,
+            locked_size: false,
+            group_id: None,
+        };
+        match pin.create(std::path::Path::new(&path), &state) {
+            Ok(()) => {
+                pins().lock().unwrap().push(pin);
+            }
+            Err(e) => eprintln!("pin_image failed: {e}"),
+        }
+    })
+    .map_err(|e| e.to_string())
 }

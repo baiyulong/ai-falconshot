@@ -116,7 +116,10 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_settings_path() -> PathBuf {
-        std::env::temp_dir().join(format!("falconshot_test_settings_{}.json", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "falconshot_test_settings_{}.json",
+            std::process::id()
+        ))
     }
 
     #[test]

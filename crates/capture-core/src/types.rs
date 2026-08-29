@@ -10,7 +10,12 @@ pub struct Rect {
 
 impl Rect {
     pub fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -26,7 +31,10 @@ impl Rect {
     }
 
     pub fn center(&self) -> (i32, i32) {
-        (self.x + self.width as i32 / 2, self.y + self.height as i32 / 2)
+        (
+            self.x + self.width as i32 / 2,
+            self.y + self.height as i32 / 2,
+        )
     }
 
     pub fn contains_point(&self, px: i32, py: i32) -> bool {

@@ -8,11 +8,20 @@ fn main() {
 
     // 1. Enumerate monitors
     println!("--- Monitors ---");
-    let monitors = backend.enumerate_monitors().expect("Failed to enumerate monitors");
+    let monitors = backend
+        .enumerate_monitors()
+        .expect("Failed to enumerate monitors");
     for m in &monitors {
         println!(
             "  [{}] {} | {}x{} @ ({},{}) | scale: {:.2} | primary: {}",
-            m.index, m.name, m.bounds.width, m.bounds.height, m.bounds.x, m.bounds.y, m.scale_factor, m.is_primary
+            m.index,
+            m.name,
+            m.bounds.width,
+            m.bounds.height,
+            m.bounds.x,
+            m.bounds.y,
+            m.scale_factor,
+            m.is_primary
         );
         println!(
             "       work_area: {}x{} @ ({},{})",
@@ -23,7 +32,9 @@ fn main() {
 
     // 2. Enumerate windows (first 10)
     println!("--- Visible Windows (first 10) ---");
-    let windows = backend.enumerate_windows().expect("Failed to enumerate windows");
+    let windows = backend
+        .enumerate_windows()
+        .expect("Failed to enumerate windows");
     for w in windows.iter().take(10) {
         println!(
             "  [0x{:X}] \"{}\" ({}) | {}x{} @ ({},{})",
@@ -38,7 +49,9 @@ fn main() {
         region: Some(capture_core::Rect::new(0, 0, 400, 300)),
         ..Default::default()
     };
-    let frame = backend.capture_region(&options).expect("Failed to capture region");
+    let frame = backend
+        .capture_region(&options)
+        .expect("Failed to capture region");
     println!(
         "  Captured: {}x{} | timestamp: {} | monitor: {}",
         frame.image.width(),
@@ -53,7 +66,9 @@ fn main() {
 
     // 4. Capture fullscreen
     println!("--- Capture Fullscreen ---");
-    let frame = backend.capture_fullscreen().expect("Failed to capture fullscreen");
+    let frame = backend
+        .capture_fullscreen()
+        .expect("Failed to capture fullscreen");
     println!(
         "  Captured: {}x{} | timestamp: {}",
         frame.image.width(),

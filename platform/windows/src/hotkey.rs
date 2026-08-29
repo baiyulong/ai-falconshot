@@ -19,6 +19,12 @@ mod win {
 
     unsafe impl Send for WindowsHotkeyBackend {}
 
+    impl Default for WindowsHotkeyBackend {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl WindowsHotkeyBackend {
         pub fn new() -> Self {
             Self {

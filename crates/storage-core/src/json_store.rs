@@ -48,12 +48,7 @@ impl HistoryStore for JsonHistoryStore {
 
     fn list(&self, limit: usize, offset: usize) -> Result<Vec<HistoryEntry>> {
         let entries = self.entries.lock().unwrap();
-        Ok(entries
-            .iter()
-            .skip(offset)
-            .take(limit)
-            .cloned()
-            .collect())
+        Ok(entries.iter().skip(offset).take(limit).cloned().collect())
     }
 
     fn search(&self, query: &str) -> Result<Vec<HistoryEntry>> {
@@ -63,7 +58,9 @@ impl HistoryStore for JsonHistoryStore {
             .iter()
             .filter(|e| {
                 e.title.to_lowercase().contains(&query_lower)
-                    || e.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
+                    || e.tags
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&query_lower))
             })
             .cloned()
             .collect())
@@ -134,7 +131,7 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
 }
 
 fn is_leap(y: u64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }
 
 #[cfg(test)]
@@ -143,7 +140,10 @@ mod tests {
     use crate::types::HistoryType;
 
     fn temp_history_path() -> PathBuf {
-        std::env::temp_dir().join(format!("falconshot_test_history_{}.json", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "falconshot_test_history_{}.json",
+            std::process::id()
+        ))
     }
 
     fn test_entry(id: &str, title: &str) -> HistoryEntry {
@@ -179,7 +179,9 @@ mod tests {
         let store = JsonHistoryStore::new(path.clone()).unwrap();
 
         for i in 0..5 {
-            store.add(&test_entry(&format!("{i}"), &format!("Entry {i}"))).unwrap();
+            store
+                .add(&test_entry(&format!("{i}"), &format!("Entry {i}")))
+                .unwrap();
         }
 
         let page = store.list(2, 0).unwrap();
@@ -196,7 +198,9 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let store = JsonHistoryStore::new(path.clone()).unwrap();
 
-        store.add(&test_entry("1", "Screenshot of dashboard")).unwrap();
+        store
+            .add(&test_entry("1", "Screenshot of dashboard"))
+            .unwrap();
         store.add(&test_entry("2", "Error log capture")).unwrap();
 
         let results = store.search("dashboard").unwrap();

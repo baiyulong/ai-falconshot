@@ -6,10 +6,12 @@ use image::RgbaImage;
 mod win {
     use super::*;
     use std::ptr;
+    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
     use windows::Win32::Graphics::Gdi::BITMAPINFOHEADER;
     use windows::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
+        CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, RegisterClipboardFormatW,
+        SetClipboardData,
     };
     use windows::Win32::System::Memory::{
         GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
@@ -19,7 +21,32 @@ mod win {
     const CF_UNICODETEXT: u32 = 13;
     const BI_RGB: u32 = 0;
 
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    unsafe fn set_data(fmt: u32, bytes: &[u8]) -> Result<()> {
+        let hmem = GlobalAlloc(GMEM_MOVEABLE, bytes.len())
+            .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {e}"))?;
+        let ptr = GlobalLock(hmem);
+        if ptr.is_null() {
+            let _ = GlobalFree(Some(hmem));
+            anyhow::bail!("GlobalLock failed");
+        }
+        ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
+        let _ = GlobalUnlock(hmem);
+        SetClipboardData(fmt, Some(HANDLE(hmem.0)))
+            .map_err(|e| anyhow::anyhow!("SetClipboardData failed: {e}"))?;
+        Ok(())
+    }
+
     pub struct WindowsClipboardBackend;
+
+    impl Default for WindowsClipboardBackend {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 
     impl WindowsClipboardBackend {
         pub fn new() -> Self {
@@ -28,8 +55,7 @@ mod win {
 
         fn open(&self) -> Result<()> {
             unsafe {
-                OpenClipboard(None)
-                    .map_err(|e| anyhow::anyhow!("OpenClipboard failed: {e}"))?;
+                OpenClipboard(None).map_err(|e| anyhow::anyhow!("OpenClipboard failed: {e}"))?;
             }
             Ok(())
         }
@@ -45,59 +71,84 @@ mod win {
         fn set_image(&self, image: &RgbaImage) -> Result<()> {
             self.open()?;
 
-            let width = image.width();
-            let height = image.height();
-            let row_size = ((width * 3 + 3) / 4) * 4;
-            let header_size = std::mem::size_of::<BITMAPINFOHEADER>();
-            let total_size = header_size + (row_size * height) as usize;
-
-            unsafe {
+            // Both a 24-bit DIB (universally accepted) and a PNG blob
+            // (preferred by many modern apps) go onto the clipboard.
+            let result = unsafe {
                 let _ = EmptyClipboard();
 
-                let hmem = GlobalAlloc(GMEM_MOVEABLE, total_size)
-                    .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {e}"))?;
+                let width = image.width();
+                let height = image.height();
+                let row_size = (width * 3).div_ceil(4) * 4;
+                let header_size = std::mem::size_of::<BITMAPINFOHEADER>();
+                let total_size = header_size + (row_size * height) as usize;
 
-                let ptr = GlobalLock(hmem);
-                if ptr.is_null() {
-                    let _ = GlobalFree(Some(hmem));
-                    self.close();
-                    anyhow::bail!("GlobalLock failed");
-                }
+                let dib: Result<()> = (|| {
+                    let hmem = GlobalAlloc(GMEM_MOVEABLE, total_size)
+                        .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {e}"))?;
 
-                let header = &mut *(ptr as *mut BITMAPINFOHEADER);
-                *header = BITMAPINFOHEADER {
-                    biSize: header_size as u32,
-                    biWidth: width as i32,
-                    biHeight: -(height as i32),
-                    biPlanes: 1,
-                    biBitCount: 24,
-                    biCompression: BI_RGB,
-                    biSizeImage: (row_size * height) as u32,
-                    biXPelsPerMeter: 0,
-                    biYPelsPerMeter: 0,
-                    biClrUsed: 0,
-                    biClrImportant: 0,
-                };
-
-                let pixel_ptr = (ptr as *mut u8).add(header_size);
-                for y in 0..height {
-                    let row_offset = (y * row_size) as usize;
-                    for x in 0..width {
-                        let px = image.get_pixel(x, y);
-                        let col_offset = row_offset + (x * 3) as usize;
-                        *pixel_ptr.add(col_offset) = px[2]; // B
-                        *pixel_ptr.add(col_offset + 1) = px[1]; // G
-                        *pixel_ptr.add(col_offset + 2) = px[0]; // R
+                    let ptr = GlobalLock(hmem);
+                    if ptr.is_null() {
+                        let _ = GlobalFree(Some(hmem));
+                        anyhow::bail!("GlobalLock failed");
                     }
+
+                    let header = &mut *(ptr as *mut BITMAPINFOHEADER);
+                    *header = BITMAPINFOHEADER {
+                        biSize: header_size as u32,
+                        biWidth: width as i32,
+                        biHeight: -(height as i32),
+                        biPlanes: 1,
+                        biBitCount: 24,
+                        biCompression: BI_RGB,
+                        biSizeImage: row_size * height,
+                        biXPelsPerMeter: 0,
+                        biYPelsPerMeter: 0,
+                        biClrUsed: 0,
+                        biClrImportant: 0,
+                    };
+
+                    let pixel_ptr = (ptr as *mut u8).add(header_size);
+                    for y in 0..height {
+                        let row_offset = (y * row_size) as usize;
+                        for x in 0..width {
+                            let px = image.get_pixel(x, y);
+                            let col_offset = row_offset + (x * 3) as usize;
+                            *pixel_ptr.add(col_offset) = px[2]; // B
+                            *pixel_ptr.add(col_offset + 1) = px[1]; // G
+                            *pixel_ptr.add(col_offset + 2) = px[0]; // R
+                        }
+                    }
+
+                    let _ = GlobalUnlock(hmem);
+                    SetClipboardData(CF_DIB, Some(HANDLE(hmem.0)))
+                        .map_err(|e| anyhow::anyhow!("SetClipboardData failed: {e}"))?;
+                    Ok(())
+                })();
+
+                if let Err(e) = dib {
+                    self.close();
+                    return Err(e);
                 }
 
-                let _ = GlobalUnlock(hmem);
-                SetClipboardData(CF_DIB, Some(HANDLE(hmem.0)))
-                    .map_err(|e| anyhow::anyhow!("SetClipboardData failed: {e}"))?;
-            }
+                let mut png_buf = std::io::Cursor::new(Vec::new());
+                let png: Result<()> = image::DynamicImage::ImageRgba8(image.clone())
+                    .write_to(&mut png_buf, image::ImageFormat::Png)
+                    .map_err(|e| anyhow::anyhow!("PNG encode failed: {e}"))
+                    .and_then(|()| {
+                        let fmt_name = wide("PNG");
+                        let fmt = RegisterClipboardFormatW(PCWSTR(fmt_name.as_ptr()));
+                        set_data(fmt, png_buf.get_ref())
+                    });
+                if let Err(e) = png {
+                    self.close();
+                    return Err(e);
+                }
+
+                Ok(())
+            };
 
             self.close();
-            Ok(())
+            result
         }
 
         fn get_image(&self) -> Result<Option<RgbaImage>> {
@@ -145,7 +196,7 @@ mod win {
                     }
                     img
                 } else if bpp == 24 {
-                    let row_stride = ((width * 3 + 3) / 4) as usize * 4;
+                    let row_stride = (width as usize * 3).div_ceil(4) * 4;
                     let mut img = RgbaImage::new(width, height);
                     for y in 0..height {
                         let src_y = if top_down { y } else { height - 1 - y };

@@ -94,8 +94,14 @@ pub struct AiSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HotkeySettings {
+    #[serde(default = "default_screenshot_hotkey")]
+    pub screenshot: String,
     pub bindings: Vec<serde_json::Value>,
     pub paused: bool,
+}
+
+fn default_screenshot_hotkey() -> String {
+    "F2".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,6 +159,7 @@ impl Default for AppSettings {
                 save_history: true,
             },
             hotkeys: HotkeySettings {
+                screenshot: "F2".to_string(),
                 bindings: Vec::new(),
                 paused: false,
             },

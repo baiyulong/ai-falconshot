@@ -217,14 +217,22 @@ fn reqwest_client(timeout_secs: u32) -> Result<reqwest::Client> {
 fn base64_encode(data: &[u8]) -> String {
     use std::fmt::Write;
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as u32;
         let b1 = *chunk.get(1).unwrap_or(&0) as u32;
         let b2 = *chunk.get(2).unwrap_or(&0) as u32;
         let triple = (b0 << 16) | (b1 << 8) | b2;
-        let _ = write!(result, "{}", CHARS[((triple >> 18) & 0x3F) as usize] as char);
-        let _ = write!(result, "{}", CHARS[((triple >> 12) & 0x3F) as usize] as char);
+        let _ = write!(
+            result,
+            "{}",
+            CHARS[((triple >> 18) & 0x3F) as usize] as char
+        );
+        let _ = write!(
+            result,
+            "{}",
+            CHARS[((triple >> 12) & 0x3F) as usize] as char
+        );
         if chunk.len() > 1 {
             let _ = write!(result, "{}", CHARS[((triple >> 6) & 0x3F) as usize] as char);
         } else {

@@ -1,6 +1,5 @@
 import { useRef, useState, useEffect, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import ReactMarkdown, { type Components } from "react-markdown";
 
 type AnnotationTool = "rect" | "arrow" | "pen" | "text" | "highlighter";
 
@@ -17,11 +16,6 @@ interface AnnotationObj {
   text?: string;
 }
 
-interface Props {
-  imagePath: string;
-  onClose: () => void;
-}
-
 interface OcrResult {
   text: string;
   language: string;
@@ -29,42 +23,22 @@ interface OcrResult {
   duration_ms: number;
 }
 
-interface AiResponse {
-  content: string;
-  model: string;
-  tokens_used: number;
-  duration_ms: number;
+/// Editor windows are created per capture with their geometry in the query
+/// string (physical pixels): path, window rect (x/y), image rect (w/h) and
+/// the image offset inside the window (ox/oy) — the window keeps a
+/// transparent margin around the image for the outer glow.
+function editorQuery() {
+  const p = new URLSearchParams(window.location.search);
+  return {
+    path: p.get("path") ?? "",
+    x: Number(p.get("x") ?? 0),
+    y: Number(p.get("y") ?? 0),
+    w: Number(p.get("w") ?? 0),
+    h: Number(p.get("h") ?? 0),
+    ox: Number(p.get("ox") ?? 0),
+    oy: Number(p.get("oy") ?? 0),
+  };
 }
-
-const AI_TEMPLATES = [
-  { id: "summarize", label: "总结内容", prompt: "请总结这张截图的内容。" },
-  { id: "translate", label: "翻译", prompt: "请翻译这张截图中的文字内容。" },
-  { id: "error", label: "分析报错", prompt: "请分析这张截图中的报错信息，给出原因分析和排查步骤。" },
-  { id: "table", label: "提取表格", prompt: "请提取这张截图中的表格数据，以 Markdown 格式输出。" },
-];
-
-const EXTRACT_PROMPT =
-  "请提取这张图片中的所有文字内容，按原有段落和层次输出。如果图片中包含表格，必须将表格转换为 Markdown 表格格式。只输出提取的内容本身，不要添加任何解释或额外说明。";
-
-const MARKDOWN_COMPONENTS: Components = {
-  table: ({ node, ...props }) => <table className="my-2 w-full border-collapse text-sm" {...props} />,
-  th: ({ node, ...props }) => (
-    <th className="border border-gray-600 bg-gray-800 px-2 py-1 text-left" {...props} />
-  ),
-  td: ({ node, ...props }) => <td className="border border-gray-600 px-2 py-1 align-top" {...props} />,
-  p: ({ node, ...props }) => <p className="my-1.5 leading-relaxed" {...props} />,
-  ul: ({ node, ...props }) => <ul className="my-1.5 list-disc pl-5" {...props} />,
-  ol: ({ node, ...props }) => <ol className="my-1.5 list-decimal pl-5" {...props} />,
-  pre: ({ node, ...props }) => (
-    <pre className="my-1.5 overflow-x-auto rounded bg-black/40 p-2 font-mono text-xs" {...props} />
-  ),
-  h1: ({ node, ...props }) => <h1 className="my-2 text-base font-bold" {...props} />,
-  h2: ({ node, ...props }) => <h2 className="my-2 text-sm font-bold" {...props} />,
-  h3: ({ node, ...props }) => <h3 className="my-1.5 text-sm font-semibold" {...props} />,
-  blockquote: ({ node, ...props }) => (
-    <blockquote className="my-1.5 border-l-2 border-gray-600 pl-2 text-gray-400" {...props} />
-  ),
-};
 
 const TOOLS: { id: AnnotationTool; icon: ReactNode; title: string }[] = [
   {
@@ -121,7 +95,29 @@ const TOOLS: { id: AnnotationTool; icon: ReactNode; title: string }[] = [
 const COLORS = ["#FF0000", "#00AEFF", "#00CC00", "#FFCC00", "#FF6600", "#FFFFFF"];
 const WIDTHS = [2, 3, 5, 8];
 
-export default function AnnotationEditor({ imagePath, onClose }: Props) {
+/// Approximate rendered width of the icon toolbar in CSS pixels; captures
+/// narrower than this still get a window wide enough to show it in full.
+const TOOLBAR_W_CSS = 585;
+
+export default function AnnotationEditor() {
+  const { path: imagePath, x: winX, y: winY, w: frameW, h: frameH, ox: padX, oy: padY } =
+    editorQuery();
+  const onClose = useCallback(() => {
+    invoke("close_editor").catch(() => {});
+  }, []);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarW, setToolbarW] = useState(TOOLBAR_W_CSS);
+
+  // Measure the real rendered toolbar width so the right-edge alignment and
+  // never-clip logic below use exact numbers instead of estimates.
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) return;
+    const measure = () => setToolbarW(el.offsetWidth);
+    measure();
+    const raf = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(raf);
+  }, []);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [objects, setObjects] = useState<AnnotationObj[]>([]);
@@ -140,13 +136,24 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState(AI_TEMPLATES[0].prompt);
-  const [aiResponse, setAiResponse] = useState<AiResponse | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [panelError, setPanelError] = useState("");
   const [panelCopied, setPanelCopied] = useState(false);
   const [widthMenuOpen, setWidthMenuOpen] = useState(false);
+
+  // Displayed image size and in-window offset in CSS pixels (query params
+  // are physical pixels).
+  const [geo] = useState(() => {
+    const dpr = window.devicePixelRatio || 1;
+    return {
+      disp: {
+        w: Math.max(1, Math.round(frameW / dpr)),
+        h: Math.max(1, Math.round(frameH / dpr)),
+      },
+      off: { x: Math.round(padX / dpr), y: Math.round(padY / dpr) },
+    };
+  });
+  const { disp, off } = geo;
 
   useEffect(() => {
     invoke<number[]>("read_file_bytes", { path: imagePath }).then((bytes) => {
@@ -207,12 +214,16 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
         e.preventDefault();
         redo();
       } else if (e.key === "Escape") {
-        onClose();
+        if (panelOpen) {
+          setPanelOpen(false);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [objects, redoStack]);
+  }, [objects, redoStack, panelOpen]);
 
   function drawObject(ctx: CanvasRenderingContext2D, obj: AnnotationObj) {
     ctx.strokeStyle = obj.color;
@@ -401,16 +412,15 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
     await invoke("save_annotated_image", { path: imagePath, data: Array.from(buf) });
   }
 
-  async function runOcr() {
+  async function extractText() {
     setOcrLoading(true);
     setPanelError("");
     setOcrResult(null);
-    setAiPanelOpen(true);
+    setPanelOpen(true);
     try {
       await flushCanvasToDisk();
       const json = await invoke<string>("run_ocr", { imagePath });
       setOcrResult(JSON.parse(json));
-      setAiResponse(null);
     } catch (e) {
       setPanelError(String(e));
     } finally {
@@ -418,360 +428,285 @@ export default function AnnotationEditor({ imagePath, onClose }: Props) {
     }
   }
 
-  async function runAi() {
-    setAiLoading(true);
-    setPanelError("");
-    setAiResponse(null);
+  async function pinImage() {
+    setSaving(true);
     try {
+      // Bake annotations into the file first, then pin the image at its
+      // exact on-screen position; the editor window goes away afterwards.
       await flushCanvasToDisk();
-      const json = await invoke<string>("analyze_image", { imagePath, prompt: aiPrompt });
-      setAiResponse(JSON.parse(json));
-      setOcrResult(null);
+      const dpr = window.devicePixelRatio || 1;
+      await invoke("pin_image", {
+        path: imagePath,
+        x: Math.round(winX + off.x * dpr),
+        y: Math.round(winY + off.y * dpr),
+        width: Math.round(disp.w * dpr),
+        height: Math.round(disp.h * dpr),
+      });
+      onClose();
     } catch (e) {
       setPanelError(String(e));
+      setPanelOpen(true);
     } finally {
-      setAiLoading(false);
-    }
-  }
-
-  async function runAiExtract() {
-    setAiLoading(true);
-    setPanelError("");
-    setAiResponse(null);
-    setOcrResult(null);
-    setAiPanelOpen(true);
-    try {
-      await flushCanvasToDisk();
-      const json = await invoke<string>("analyze_image", { imagePath, prompt: EXTRACT_PROMPT });
-      setAiResponse(JSON.parse(json));
-    } catch (e) {
-      setPanelError(String(e));
-    } finally {
-      setAiLoading(false);
+      setSaving(false);
     }
   }
 
   async function copyPanelText() {
-    const text = ocrResult?.text || aiResponse?.content;
-    if (!text) return;
-    await navigator.clipboard.writeText(text);
+    if (!ocrResult?.text) return;
+    await navigator.clipboard.writeText(ocrResult.text);
     setPanelCopied(true);
     setTimeout(() => setPanelCopied(false), 2000);
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
-      {/* Toolbar */}
+    <div className="w-screen h-screen overflow-hidden">
+      {/* Image at its exact on-screen position; the transparent margin around
+          it hosts the outer glow. The glow border is an overlay div (an inset
+          shadow on the canvas itself would be hidden beneath the bitmap). */}
       <div
-        onMouseDown={onToolbarMouseDown}
-        className="flex items-center gap-3 px-4 py-2 bg-gray-900 border-b border-gray-700 flex-wrap"
+        className="absolute"
+        style={{ left: off.x, top: off.y, width: disp.w, height: disp.h }}
       >
-        <div className="flex gap-1">
-          {TOOLS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTool(t.id)}
-              title={t.title}
-              className={`p-1.5 ${
-                tool === t.id
-                  ? "text-primary"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              {t.icon}
-            </button>
-          ))}
-        </div>
-
-        <div className="w-px h-6 bg-gray-600" />
-
-        <div className="flex gap-1 items-center">
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              onClick={() => setColor(c)}
-              className={`w-6 h-6 rounded-full border-2 ${
-                color === c ? "border-white scale-110" : "border-gray-500"
-              }`}
-              style={{ backgroundColor: c }}
-            />
-          ))}
-        </div>
-
-        <div className="w-px h-6 bg-gray-600" />
-
-        <div className="relative">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setWidthMenuOpen((o) => !o);
-            }}
-            title="线条粗细"
-            className="flex items-center gap-1 px-1.5 py-1 text-gray-400 hover:text-white"
-          >
-            <div className="w-8 rounded-full bg-current" style={{ height: strokeWidth }} />
-            <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M1 3 L4 6 L7 3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          {widthMenuOpen && (
-            <div className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded shadow-lg py-1">
-              {WIDTHS.map((w) => (
-                <button
-                  key={w}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setStrokeWidth(w);
-                    setWidthMenuOpen(false);
-                  }}
-                  className={`flex items-center justify-center w-16 h-8 hover:bg-gray-700 ${
-                    strokeWidth === w ? "text-primary" : "text-gray-300 hover:text-white"
-                  }`}
-                >
-                  <div className="w-10 rounded-full bg-current" style={{ height: w }} />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="w-px h-6 bg-gray-600" />
-
-        <div className="flex gap-1">
-          <button
-            onClick={undo}
-            disabled={objects.length === 0}
-            title="撤销 (Ctrl+Z)"
-            className="p-1.5 text-gray-400 hover:text-white disabled:opacity-30"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 7 L7 3 M3 7 L7 11 M3 7 H11 C13 7 14 9 13 11" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          <button
-            onClick={redo}
-            disabled={redoStack.length === 0}
-            title="重做 (Ctrl+Y)"
-            className="p-1.5 text-gray-400 hover:text-white disabled:opacity-30"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M13 7 L9 3 M13 7 L9 11 M13 7 H5 C3 7 2 9 3 11" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="w-px h-6 bg-gray-600" />
-
-        <div className="flex gap-1">
-          <button
-            onClick={runOcr}
-            disabled={ocrLoading}
-            title="OCR 文字识别"
-            className="p-1.5 text-purple-400 hover:text-purple-300 disabled:opacity-30"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M2 5 V3 C2 2 2 2 3 2 H5 M11 2 H13 C14 2 14 2 14 3 V5 M14 11 V13 C14 14 14 14 13 14 H11 M5 14 H3 C2 14 2 14 2 13 V11" strokeLinecap="round" />
-              <line x1="4" y1="6" x2="12" y2="6" strokeLinecap="round" />
-              <line x1="4" y1="8" x2="12" y2="8" strokeLinecap="round" />
-              <line x1="4" y1="10" x2="9" y2="10" strokeLinecap="round" />
-            </svg>
-          </button>
-          <button
-            onClick={runAiExtract}
-            disabled={aiLoading}
-            title="AI 识别文字（表格转 Markdown）"
-            className="p-1.5 text-emerald-400 hover:text-emerald-300 disabled:opacity-30"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="2" y="2" width="12" height="12" rx="1" />
-              <line x1="2" y1="6" x2="14" y2="6" />
-              <line x1="6" y1="6" x2="6" y2="14" />
-              <line x1="10" y1="6" x2="10" y2="14" />
-              <line x1="4" y1="4" x2="8" y2="4" strokeLinecap="round" />
-            </svg>
-          </button>
-          <button
-            onClick={() => {
-              setAiPanelOpen(true);
-              setOcrResult(null);
-              setPanelError("");
-            }}
-            title="AI 分析"
-            className="p-1.5 text-indigo-400 hover:text-indigo-300"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M8 1.5 L9.3 5.7 L13.5 7 L9.3 8.3 L8 12.5 L6.7 8.3 L2.5 7 L6.7 5.7 Z" strokeLinejoin="round" />
-              <path d="M12.5 11 L13 12.5 L14.5 13 L13 13.5 L12.5 15 L12 13.5 L10.5 13 L12 12.5 Z" strokeLinejoin="round" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="ml-auto flex gap-2">
-          <button
-            onClick={copy}
-            disabled={saving}
-            title="复制到剪贴板"
-            className="p-1.5 text-green-400 hover:text-green-300 disabled:opacity-30"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="5" y="5" width="9" height="9" rx="1" />
-              <path d="M11 3 H3 C2 3 2 3 2 4 V11" strokeLinecap="round" />
-            </svg>
-          </button>
-          <button
-            onClick={save}
-            disabled={saving}
-            title="保存"
-            className="p-1.5 text-primary hover:text-primary/80 disabled:opacity-30"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 2 H11 L14 5 V13 C14 14 14 14 13 14 H3 C2 14 2 14 2 13 V3 C2 2 2 2 3 2 Z" />
-              <rect x="5" y="2" width="6" height="4" />
-              <rect x="5" y="10" width="6" height="4" />
-            </svg>
-          </button>
-          <button
-            onClick={onClose}
-            title="关闭"
-            className="p-1.5 text-gray-400 hover:text-red-400"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <line x1="3" y1="3" x2="13" y2="13" strokeLinecap="round" />
-              <line x1="13" y1="3" x2="3" y2="13" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Canvas area + side panel */}
-      <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 flex items-center justify-center overflow-auto p-4">
+        <div className="relative" style={{ width: disp.w, height: disp.h }}>
           <canvas
             ref={canvasRef}
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
-            className="max-w-full max-h-full cursor-crosshair shadow-2xl"
+            style={{ width: disp.w, height: disp.h }}
+            className="block cursor-crosshair"
           />
+          <div className="pointer-events-none absolute -inset-px border border-[#00AEFF] shadow-[0_0_14px_rgba(0,174,255,0.5)]" />
         </div>
+      </div>
 
-        {aiPanelOpen && (
-          <div className="w-96 bg-gray-900 border-l border-gray-700 flex flex-col">
-            <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700">
-              <span className="text-sm font-medium text-gray-200">
-                {ocrLoading || ocrResult ? "OCR 识别结果" : "AI 分析"}
-              </span>
-              <button
-                onClick={() => {
-                  setAiPanelOpen(false);
-                  setOcrResult(null);
-                  setAiResponse(null);
-                  setPanelError("");
-                }}
-                className="p-1 text-gray-400 hover:text-white"
-                title="关闭面板"
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <line x1="3" y1="3" x2="13" y2="13" strokeLinecap="round" />
-                  <line x1="13" y1="3" x2="3" y2="13" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
+      {/* Toolbar strip below the image (transparent background); the bar's
+          right edge hugs the image's right edge when the image is wide enough,
+          otherwise it right-aligns to the window so it is never clipped. */}
+      <div
+        className="absolute left-0 right-0 flex justify-end items-start"
+        style={{ top: off.y + disp.h, bottom: 0 }}
+      >
+        <div
+          ref={toolbarRef}
+          className="relative"
+          style={{
+            marginRight: Math.max(
+              0,
+              window.innerWidth - Math.max(off.x + disp.w, toolbarW + 4)
+            ),
+          }}
+        >
+            <div
+              onMouseDown={onToolbarMouseDown}
+              className="mt-2 mr-1 flex items-center gap-1 px-2 py-2 rounded-lg bg-gray-900 border border-gray-700 shadow-xl"
+            >
+              <div className="flex gap-1">
+                {TOOLS.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTool(t.id)}
+                    title={t.title}
+                    className={`p-1.5 rounded ${
+                      tool === t.id
+                        ? "text-primary bg-primary/10"
+                        : "text-gray-400 hover:text-white hover:bg-gray-800"
+                    }`}
+                  >
+                    {t.icon}
+                  </button>
+                ))}
+              </div>
 
-            <div className="flex-1 overflow-auto p-4 space-y-3">
-              {panelError && (
-                <div className="p-3 bg-red-900/30 border border-red-800 rounded text-red-400 text-xs break-all">
-                  {panelError}
-                </div>
-              )}
+              <div className="w-px h-6 bg-gray-700" />
 
-              {ocrLoading && <p className="text-sm text-gray-400">识别中...</p>}
+              <div className="flex gap-1 items-center">
+                {COLORS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setColor(c)}
+                    title={c}
+                    className={`w-5 h-5 rounded-full border-2 ${
+                      color === c ? "border-white scale-110" : "border-gray-500"
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
 
-              {!ocrLoading && aiLoading && !aiResponse && (
-                <p className="text-sm text-gray-400">AI 处理中，请稍候...</p>
-              )}
+              <div className="w-px h-6 bg-gray-700" />
 
-              {ocrResult && (
-                <>
-                  <div className="flex items-center justify-between text-xs text-gray-400">
-                    <span>耗时 {ocrResult.duration_ms}ms</span>
-                    <button
-                      onClick={copyPanelText}
-                      className="px-2 py-1 bg-gray-700 rounded hover:bg-gray-600 text-gray-200"
-                    >
-                      {panelCopied ? "已复制" : "复制文本"}
-                    </button>
-                  </div>
-                  <div className="p-3 bg-gray-800 rounded border border-gray-700">
-                    <pre className="whitespace-pre-wrap text-sm text-gray-100 font-mono">
-                      {ocrResult.text || "(未识别到文字)"}
-                    </pre>
-                  </div>
-                </>
-              )}
-
-              {!ocrLoading && !ocrResult && (
-                <>
-                  <div className="flex gap-1 flex-wrap">
-                    {AI_TEMPLATES.map((t) => (
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setWidthMenuOpen((o) => !o);
+                  }}
+                  title="线条粗细"
+                  className="flex items-center gap-1 px-1.5 py-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+                >
+                  <div className="w-7 rounded-full bg-current" style={{ height: strokeWidth }} />
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M1 3 L4 6 L7 3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {widthMenuOpen && (
+                  <div className="absolute bottom-full left-0 mb-1 z-50 bg-gray-900 border border-gray-700 rounded shadow-lg py-1">
+                    {WIDTHS.map((w) => (
                       <button
-                        key={t.id}
-                        onClick={() => setAiPrompt(t.prompt)}
-                        className={`px-2 py-1 text-xs rounded border ${
-                          aiPrompt === t.prompt
-                            ? "border-indigo-400 text-indigo-300 bg-indigo-900/30"
-                            : "border-gray-600 text-gray-300 hover:border-indigo-500/50"
+                        key={w}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setStrokeWidth(w);
+                          setWidthMenuOpen(false);
+                        }}
+                        className={`flex items-center justify-center w-16 h-8 hover:bg-gray-700 ${
+                          strokeWidth === w ? "text-primary" : "text-gray-300 hover:text-white"
                         }`}
                       >
-                        {t.label}
+                        <div className="w-10 rounded-full bg-current" style={{ height: w }} />
                       </button>
                     ))}
                   </div>
+                )}
+              </div>
 
-                  <textarea
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    rows={3}
-                    className="w-full px-2 py-1.5 text-sm bg-gray-800 border border-gray-600 rounded text-gray-100 resize-none"
-                    placeholder="输入提示词..."
-                  />
+              <div className="w-px h-6 bg-gray-700" />
 
-                  <button
-                    onClick={runAi}
-                    disabled={aiLoading || !aiPrompt.trim()}
-                    className="w-full px-3 py-2 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-500 disabled:opacity-50"
-                  >
-                    {aiLoading ? "分析中..." : "开始分析"}
-                  </button>
+              <div className="flex gap-1">
+                <button
+                  onClick={undo}
+                  disabled={objects.length === 0}
+                  title="撤销 (Ctrl+Z)"
+                  className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M3 7 L7 3 M3 7 L7 11 M3 7 H11 C13 7 14 9 13 11" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  onClick={redo}
+                  disabled={redoStack.length === 0}
+                  title="重做 (Ctrl+Y)"
+                  className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M13 7 L9 3 M13 7 L9 11 M13 7 H5 C3 7 2 9 3 11" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
 
-                  {aiResponse && (
-                    <>
-                      <div className="flex items-center justify-between text-xs text-gray-400">
-                        <span>
-                          {aiResponse.model} · {aiResponse.duration_ms}ms
-                        </span>
-                        <button
-                          onClick={copyPanelText}
-                          className="px-2 py-1 bg-gray-700 rounded hover:bg-gray-600 text-gray-200"
-                        >
-                          {panelCopied ? "已复制" : "复制"}
-                        </button>
-                      </div>
-                      <div className="p-3 bg-gray-800 rounded border border-gray-700">
-                        <div className="text-sm text-gray-100">
-                          <ReactMarkdown components={MARKDOWN_COMPONENTS}>
-                            {aiResponse.content}
-                          </ReactMarkdown>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </>
-              )}
+              <div className="w-px h-6 bg-gray-700" />
+
+              <div className="flex gap-1">
+                <button
+                  onClick={pinImage}
+                  disabled={saving}
+                  title="贴图（双击贴图关闭）"
+                  className="p-1.5 rounded text-amber-400 hover:text-amber-300 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 17v5" />
+                    <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={extractText}
+                  disabled={ocrLoading}
+                  title="提取文本"
+                  className="p-1.5 rounded text-purple-400 hover:text-purple-300 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M2 5 V3 C2 2 2 2 3 2 H5 M11 2 H13 C14 2 14 2 14 3 V5 M14 11 V13 C14 14 14 14 13 14 H11 M5 14 H3 C2 14 2 14 2 13 V11" strokeLinecap="round" />
+                    <line x1="4" y1="6" x2="12" y2="6" strokeLinecap="round" />
+                    <line x1="4" y1="8" x2="12" y2="8" strokeLinecap="round" />
+                    <line x1="4" y1="10" x2="9" y2="10" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="w-px h-6 bg-gray-700" />
+
+              <div className="flex gap-1">
+                <button
+                  onClick={copy}
+                  disabled={saving}
+                  title="复制到剪贴板"
+                  className="p-1.5 rounded text-green-400 hover:text-green-300 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <rect x="5" y="5" width="9" height="9" rx="1" />
+                    <path d="M11 3 H3 C2 3 2 3 2 4 V11" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <button
+                  onClick={save}
+                  disabled={saving}
+                  title="保存"
+                  className="p-1.5 rounded text-primary hover:text-primary/80 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M3 2 H11 L14 5 V13 C14 14 14 14 13 14 H3 C2 14 2 14 2 13 V3 C2 2 2 2 3 2 Z" />
+                    <rect x="5" y="2" width="6" height="4" />
+                    <rect x="5" y="10" width="6" height="4" />
+                  </svg>
+                </button>
+                <button
+                  onClick={onClose}
+                  title="关闭 (Esc)"
+                  className="p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-gray-800"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <line x1="3" y1="3" x2="13" y2="13" strokeLinecap="round" />
+                    <line x1="13" y1="3" x2="3" y2="13" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+
+            {/* Extracted text panel, floating above the toolbar */}
+            {panelOpen && (
+              <div className="absolute bottom-full right-0 mb-2 w-[min(440px,calc(100vw-16px))] max-h-[55vh] flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-gray-700 shrink-0">
+                  <span className="text-sm font-medium text-gray-200">提取的文本</span>
+                  <div className="flex items-center gap-2">
+                    {ocrResult && !ocrLoading && (
+                      <button
+                        onClick={copyPanelText}
+                        className="px-2 py-0.5 text-xs bg-gray-700 rounded hover:bg-gray-600 text-gray-200"
+                      >
+                        {panelCopied ? "已复制" : "复制"}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setPanelOpen(false)}
+                      title="关闭面板"
+                      className="p-1 text-gray-400 hover:text-white"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <line x1="3" y1="3" x2="13" y2="13" strokeLinecap="round" />
+                        <line x1="13" y1="3" x2="3" y2="13" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-auto p-3">
+                  {panelError && (
+                    <div className="p-2 bg-red-900/30 border border-red-800 rounded text-red-400 text-xs break-all">
+                      {panelError}
+                    </div>
+                  )}
+                  {ocrLoading && <p className="text-sm text-gray-400">识别中...</p>}
+                  {ocrResult && !ocrLoading && (
+                    <pre className="whitespace-pre-wrap text-sm text-gray-100 font-mono">
+                      {ocrResult.text || "(未识别到文字)"}
+                    </pre>
+                  )}
+                </div>
+              </div>
+            )}
+        </div>
       </div>
 
       {/* Text input overlay */}
