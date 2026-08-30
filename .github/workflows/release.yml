@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          cache-all-crates: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop-tauri/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop-tauri
+        run: npm ci
+
+      - name: Build Tauri app (MSI installer)
+        working-directory: apps/desktop-tauri
+        shell: pwsh
+        run: |
+          npm run tauri build
+          Get-ChildItem target/release/bundle/msi
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FalconShot-windows-x64-msi
+          path: apps/desktop-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+
+      - name: Attach installer to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/desktop-tauri/target/release/bundle/msi/*.msi
+          generate_release_notes: true
