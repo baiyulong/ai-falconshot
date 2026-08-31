@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FalconShot — 智能截图 · 贴图 · OCR · AI 识别</title>
+<meta name="description" content="FalconShot：Windows 智能截图工具。拖拽即截、贴图置顶、本地 OCR 与 AI 视觉识别，开源免费。" />
+<style>
+  :root {
+    --accent: #00aeff;
+    --bg: #0d1220;
+    --panel: #151c2e;
+    --border: #232d45;
+    --text: #e8edf7;
+    --muted: #93a0ba;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* Header */
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(13, 18, 32, 0.85);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+  .logo-mark {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), #0066ff);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: #fff;
+  }
+  .nav-links { display: flex; gap: 22px; font-size: 14px; color: var(--muted); }
+  .nav-links a:hover { color: var(--text); }
+  .btn {
+    display: inline-block; padding: 10px 22px; border-radius: 8px;
+    background: var(--accent); color: #fff; font-weight: 600; font-size: 15px;
+    transition: opacity .15s, transform .15s;
+  }
+  .btn:hover { opacity: .9; transform: translateY(-1px); }
+  .btn.small { padding: 7px 16px; font-size: 13px; }
+  .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn.ghost:hover { border-color: var(--accent); }
+
+  /* Hero */
+  .hero { text-align: center; padding: 90px 24px 70px; }
+  .hero h1 { font-size: 44px; letter-spacing: 1px; margin-bottom: 18px; }
+  .hero h1 span { color: var(--accent); }
+  .hero p.sub { color: var(--muted); font-size: 19px; max-width: 640px; margin: 0 auto 34px; }
+  .cta { display: flex; gap: 14px; justify-content: center; margin-bottom: 18px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .meta .dot { margin: 0 8px; opacity: .5; }
+
+  /* Screenshot mockup */
+  .shot {
+    max-width: 860px; margin: 50px auto 0;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--panel); padding: 26px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, .45);
+    text-align: left;
+  }
+  .shot-bar { display: flex; gap: 7px; margin-bottom: 18px; }
+  .shot-bar i { width: 11px; height: 11px; border-radius: 50%; background: #38425c; }
+  .shot-row { display: flex; gap: 18px; flex-wrap: wrap; }
+  .shot-tool {
+    display: flex; gap: 8px; align-items: center;
+    background: #101627; border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; font-size: 13px; color: var(--muted);
+    margin-top: 18px; margin-left: auto;
+  }
+  .shot-tool b { color: var(--accent); font-size: 15px; }
+
+  /* Sections */
+  section { padding: 70px 0; }
+  section.alt { background: var(--panel); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  h2.title { text-align: center; font-size: 30px; margin-bottom: 12px; }
+  p.subtitle { text-align: center; color: var(--muted); margin-bottom: 46px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 20px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 26px;
+    transition: border-color .15s, transform .15s;
+  }
+  section.alt .card { background: var(--bg); }
+  .card:hover { border-color: var(--accent); transform: translateY(-3px); }
+  .card .icon { font-size: 28px; margin-bottom: 12px; }
+  .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .card p { color: var(--muted); font-size: 14px; }
+
+  /* Steps */
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; counter-reset: step; }
+  .step { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    display: inline-flex; width: 30px; height: 30px; border-radius: 50%;
+    background: rgba(0, 174, 255, .12); color: var(--accent);
+    align-items: center; justify-content: center; font-weight: 700; margin-bottom: 12px;
+  }
+  .step h3 { font-size: 16px; margin-bottom: 6px; }
+  .step p { color: var(--muted); font-size: 14px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  kbd {
+    background: #1c2438; border: 1px solid #313d5c; border-bottom-width: 2px;
+    border-radius: 5px; padding: 1px 8px; font-size: 12px; font-family: Consolas, monospace;
+  }
+
+  footer { border-top: 1px solid var(--border); padding: 34px 0; color: var(--muted); font-size: 13px; }
+  footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 32px; }
+    .nav-links { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <div class="logo"><div class="logo-mark">🦅</div>FalconShot</div>
+    <nav class="nav-links">
+      <a href="#features">功能</a>
+      <a href="#quickstart">快速上手</a>
+      <a href="#shortcuts">快捷键</a>
+      <a href="https://github.com/baiyulong/ai-falconshot" target="_blank" rel="noreferrer">GitHub</a>
+    </nav>
+    <a class="btn small" href="https://github.com/baiyulong/ai-falconshot/releases/latest" target="_blank" rel="noreferrer">下载</a>
+  </div>
+</header>
+
+<div class="hero">
+  <h1>截图，然后<span>交给 AI</span></h1>
+  <p class="sub">FalconShot 是开源的 Windows 智能截图工具：拖拽即截、贴图置顶、本地 OCR 文字提取、AI 视觉识别输出 Markdown。</p>
+  <div class="cta">
+    <a class="btn" href="https://github.com/baiyulong/ai-falconshot/releases/latest" target="_blank" rel="noreferrer">⬇ 下载 Windows 安装包</a>
+    <a class="btn ghost" href="https://github.com/baiyulong/ai-falconshot" target="_blank" rel="noreferrer">查看源码</a>
+  </div>
+  <p class="meta">Windows 10 / 11<span class="dot">·</span>MIT 开源协议<span class="dot">·</span>Rust + Tauri 2</p>
+
+  <div class="shot">
+    <div class="shot-bar"><i></i><i></i><i></i></div>
+    <div class="shot-row">
+      <div style="flex:1;min-width:220px;height:150px;border:2px solid var(--accent);border-radius:8px;box-shadow:0 0 18px rgba(0,174,255,.35);background:linear-gradient(135deg,rgba(0,174,255,.08),rgba(0,102,255,.04));display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;">
+        截图区域 · 1269 × 1017
+      </div>
+      <div style="flex:1;min-width:220px;height:150px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;">
+        AI 识别结果（Markdown）
+      </div>
+    </div>
+    <div class="shot-tool">
+      <b>▭</b><b>➶</b><b>✎</b><b>A</b><b>🖍</b>
+      <span>撤销 · 重做</span>
+      <span style="color:var(--accent);">✨ AI 识别</span>
+      <span>📌 贴图</span>
+      <span>复制 · 保存</span>
+    </div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2 class="title">核心功能</h2>
+    <p class="subtitle">从截屏到结构化信息，一个工具打通</p>
+    <div class="grid">
+      <div class="card"><div class="icon">🖥️</div><h3>区域截图</h3><p>F2 全局快捷键（可自定义），拖拽松手即完成；冻结帧捕获，所见即所得，多显示器与高 DPI 适配。</p></div>
+      <div class="card"><div class="icon">✏️</div><h3>标注编辑</h3><p>矩形、箭头、画笔、荧光笔、文字标注，撤销/重做；编辑窗口精确覆盖在截图原位，外发光边框标识区域。</p></div>
+      <div class="card"><div class="icon">📌</div><h3>贴图置顶</h3><p>截图（含标注）一键变为置顶悬浮图，可任意拖动、支持多张贴图，双击关闭——对照填写、比图神器。</p></div>
+      <div class="card"><div class="icon">🔍</div><h3>本地 OCR</h3><p>基于 Windows.Media.Ocr 的离线文字识别，中英文混排，无需联网、无需 API Key，秒级出结果。</p></div>
+      <div class="card"><div class="icon">✨</div><h3>AI 视觉识别</h3><p>截图发给支持视觉的大模型（推荐免费的 agnes-2.5-flash），按 Markdown 输出：表格转 Markdown 表格、代码进代码块。System Prompt 可自定义。</p></div>
+      <div class="card"><div class="icon">📋</div><h3>一键复制</h3><p>图片同时写入 DIB 与 PNG 双格式，粘贴到聊天窗口、文档、编辑器均可；识别文本一键复制。</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="quickstart">
+  <div class="wrap">
+    <h2 class="title">快速上手</h2>
+    <p class="subtitle">三步开始</p>
+    <div class="steps">
+      <div class="step"><h3>下载安装</h3><p>从 GitHub Releases 下载 MSI 安装包，按提示完成安装；安装包附带 SHA256 校验值。</p></div>
+      <div class="step"><h3>按 F2 截图</h3><p>任意界面按 F2 拖出选区，松开即得截图并进入标注编辑器。</p></div>
+      <div class="step"><h3>贴图或识别</h3><p>点图钉贴图置顶，或点紫色图标本地提取文字；配置好模型后点星芒图标让 AI 输出 Markdown。</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="shortcuts">
+  <div class="wrap">
+    <h2 class="title">快捷键</h2>
+    <p class="subtitle">可在设置中自定义</p>
+    <table>
+      <tr><th>快捷键</th><th>功能</th></tr>
+      <tr><td><kbd>F2</kbd>（默认）</td><td>开始区域截图</td></tr>
+      <tr><td><kbd>Esc</kbd> / 右键</td><td>取消截图 / 关闭编辑器</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>撤销 / 重做标注</td></tr>
+      <tr><td>双击贴图</td><td>关闭该贴图</td></tr>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>FalconShot — MIT License · <a href="https://github.com/baiyulong/ai-falconshot" target="_blank" rel="noreferrer">GitHub</a></div>
+    <div>Rust Workspace · Tauri 2 · React 19 · Windows 10/11</div>
+  </div>
+</footer>
+
+</body>
+</html>
