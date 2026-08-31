@@ -62,8 +62,18 @@ cd apps/desktop-tauri && npx tsc --noEmit
 
 推送到远端后，GitHub Actions 在 Windows runner 上构建 MSI 安装包：
 
-- 推送 `v*` 标签（如 `v0.1.0`）→ 自动创建 GitHub Release 并附上 MSI
+- 推送 `v*` 标签（如 `v0.1.0`）→ 自动创建 GitHub Release 并附上 MSI 与 SHA256 校验值
 - Actions 页面手动触发 Release 工作流 → 从 Run 的 Artifacts 下载
+
+## 安全性说明
+
+安装包**尚未做代码签名**（个人开发者的签名证书在规划中），因此：
+
+- 安装时 Windows 会提示 **Unknown Publisher**：确认下载地址是本仓库 Releases 页即可继续（SmartScreen 界面点"More info / 更多信息" → "Run anyway / 仍要运行"）
+- 部分杀毒软件可能因缺乏信誉记录而**误报**：可在杀软中恢复/加白名单；本仓库全部源码公开，安装包由 GitHub Actions 从源码构建
+- 下载后建议核对 SHA256：与 Release 附带的 `checksums.txt`（或 Release 说明中的哈希值）一致即为本仓库原版
+
+若遇到误报，欢迎提 issue，我会向 Microsoft 提交误报申诉。
 
 ## 许可证
 
