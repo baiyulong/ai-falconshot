@@ -300,7 +300,8 @@ mod win {
         // GDI expects BGRA byte order; the source image is RGBA. Without the
         // swap the preview shows red/blue-shifted colors.
         let mut bgra = img.as_raw().clone();
-        for px in bgra.chunks_exact_mut(4) {
+        let (pixels, _) = bgra.as_chunks_mut::<4>();
+        for px in pixels {
             px.swap(0, 2);
         }
 
