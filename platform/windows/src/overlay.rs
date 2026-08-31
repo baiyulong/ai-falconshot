@@ -297,6 +297,13 @@ mod win {
         let hbmp = CreateCompatibleBitmap(hdc_screen, w, h);
         let old = SelectObject(hdc_mem, hbmp.into());
 
+        // GDI expects BGRA byte order; the source image is RGBA. Without the
+        // swap the preview shows red/blue-shifted colors.
+        let mut bgra = img.as_raw().clone();
+        for px in bgra.chunks_exact_mut(4) {
+            px.swap(0, 2);
+        }
+
         let mut bmi = BITMAPINFO::default();
         bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
         bmi.bmiHeader.biWidth = w;
@@ -315,7 +322,7 @@ mod win {
             0,
             0,
             img.height(),
-            img.as_raw().as_ptr().cast(),
+            bgra.as_ptr().cast(),
             &bmi,
             DIB_RGB_COLORS,
         );

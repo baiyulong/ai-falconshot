@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import ReactMarkdown, { type Components } from "react-markdown";
 
 type AnnotationTool = "rect" | "arrow" | "pen" | "text" | "highlighter";
 
@@ -22,6 +23,34 @@ interface OcrResult {
   confidence: number;
   duration_ms: number;
 }
+
+const MARKDOWN_COMPONENTS: Components = {
+  table: ({ node, ...props }) => (
+    <table className="my-2 w-full border-collapse text-xs" {...props} />
+  ),
+  th: ({ node, ...props }) => (
+    <th className="border border-gray-600 bg-gray-800 px-2 py-1 text-left" {...props} />
+  ),
+  td: ({ node, ...props }) => (
+    <td className="border border-gray-600 px-2 py-1 align-top" {...props} />
+  ),
+  p: ({ node, ...props }) => <p className="my-1.5 leading-relaxed" {...props} />,
+  ul: ({ node, ...props }) => <ul className="my-1.5 list-disc pl-4" {...props} />,
+  ol: ({ node, ...props }) => <ol className="my-1.5 list-decimal pl-4" {...props} />,
+  pre: ({ node, ...props }) => (
+    <pre className="my-1.5 overflow-x-auto rounded bg-black/40 p-2 font-mono text-xs" {...props} />
+  ),
+  code: ({ node, ...props }) => <code className="font-mono text-xs" {...props} />,
+  h1: ({ node, ...props }) => <h1 className="my-2 text-sm font-bold" {...props} />,
+  h2: ({ node, ...props }) => <h2 className="my-2 text-xs font-bold" {...props} />,
+  h3: ({ node, ...props }) => <h3 className="my-1.5 text-xs font-semibold" {...props} />,
+  blockquote: ({ node, ...props }) => (
+    <blockquote className="my-1.5 border-l-2 border-gray-600 pl-2 text-gray-400" {...props} />
+  ),
+  a: ({ node, ...props }) => (
+    <a className="text-primary underline" target="_blank" rel="noreferrer" {...props} />
+  ),
+};
 
 /// Editor windows are created per capture with their geometry in the query
 /// string (physical pixels): path, window rect (x/y), image rect (w/h) and
@@ -136,6 +165,8 @@ export default function AnnotationEditor() {
   const [saving, setSaving] = useState(false);
   const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
+  const [aiResult, setAiResult] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelError, setPanelError] = useState("");
   const [panelCopied, setPanelCopied] = useState(false);
@@ -428,6 +459,23 @@ export default function AnnotationEditor() {
     }
   }
 
+  async function runAiExtract() {
+    setAiLoading(true);
+    setPanelError("");
+    setAiResult(null);
+    setOcrResult(null);
+    setPanelOpen(true);
+    try {
+      await flushCanvasToDisk();
+      const content = await invoke<string>("ai_extract", { path: imagePath });
+      setAiResult(content);
+    } catch (e) {
+      setPanelError(String(e));
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   async function pinImage() {
     setSaving(true);
     try {
@@ -452,8 +500,9 @@ export default function AnnotationEditor() {
   }
 
   async function copyPanelText() {
-    if (!ocrResult?.text) return;
-    await navigator.clipboard.writeText(ocrResult.text);
+    const text = ocrResult?.text || aiResult;
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
     setPanelCopied(true);
     setTimeout(() => setPanelCopied(false), 2000);
   }
@@ -614,7 +663,7 @@ export default function AnnotationEditor() {
                 <button
                   onClick={extractText}
                   disabled={ocrLoading}
-                  title="提取文本"
+                  title="提取文本（本地 OCR）"
                   className="p-1.5 rounded text-purple-400 hover:text-purple-300 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -622,6 +671,17 @@ export default function AnnotationEditor() {
                     <line x1="4" y1="6" x2="12" y2="6" strokeLinecap="round" />
                     <line x1="4" y1="8" x2="12" y2="8" strokeLinecap="round" />
                     <line x1="4" y1="10" x2="9" y2="10" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <button
+                  onClick={runAiExtract}
+                  disabled={aiLoading}
+                  title="AI 识别（Markdown，需在设置中配置模型）"
+                  className="p-1.5 rounded text-indigo-400 hover:text-indigo-300 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M8 1.5 L9.3 5.7 L13.5 7 L9.3 8.3 L8 12.5 L6.7 8.3 L2.5 7 L6.7 5.7 Z" strokeLinejoin="round" />
+                    <path d="M12.5 11 L13 12.5 L14.5 13 L13 13.5 L12.5 15 L12 13.5 L10.5 13 L12 12.5 Z" strokeLinejoin="round" />
                   </svg>
                 </button>
               </div>
@@ -669,9 +729,11 @@ export default function AnnotationEditor() {
             {panelOpen && (
               <div className="absolute bottom-full right-0 mb-2 w-[min(440px,calc(100vw-16px))] max-h-[55vh] flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 border-b border-gray-700 shrink-0">
-                  <span className="text-sm font-medium text-gray-200">提取的文本</span>
+                  <span className="text-sm font-medium text-gray-200">
+                    {aiResult ? "AI 识别结果（Markdown）" : "提取的文本"}
+                  </span>
                   <div className="flex items-center gap-2">
-                    {ocrResult && !ocrLoading && (
+                    {(ocrResult || aiResult) && !ocrLoading && !aiLoading && (
                       <button
                         onClick={copyPanelText}
                         className="px-2 py-0.5 text-xs bg-gray-700 rounded hover:bg-gray-600 text-gray-200"
@@ -698,10 +760,16 @@ export default function AnnotationEditor() {
                     </div>
                   )}
                   {ocrLoading && <p className="text-sm text-gray-400">识别中...</p>}
+                  {aiLoading && <p className="text-sm text-gray-400">AI 识别中，请稍候...</p>}
                   {ocrResult && !ocrLoading && (
                     <pre className="whitespace-pre-wrap text-sm text-gray-100 font-mono">
                       {ocrResult.text || "(未识别到文字)"}
                     </pre>
+                  )}
+                  {aiResult && !aiLoading && (
+                    <div className="text-sm text-gray-100">
+                      <ReactMarkdown components={MARKDOWN_COMPONENTS}>{aiResult}</ReactMarkdown>
+                    </div>
                   )}
                 </div>
               </div>

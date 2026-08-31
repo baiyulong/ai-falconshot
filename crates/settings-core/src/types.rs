@@ -87,6 +87,8 @@ pub struct AiSettings {
     pub base_url: Option<String>,
     #[serde(default)]
     pub api_key: String,
+    #[serde(default)]
+    pub system_prompt: String,
     pub timeout_secs: u32,
     pub allow_image_upload: bool,
     pub save_history: bool,
@@ -154,6 +156,7 @@ impl Default for AppSettings {
                 model: "deepseek-chat".to_string(),
                 base_url: Some("https://api.deepseek.com".to_string()),
                 api_key: String::new(),
+                system_prompt: String::new(),
                 timeout_secs: 60,
                 allow_image_upload: false,
                 save_history: true,

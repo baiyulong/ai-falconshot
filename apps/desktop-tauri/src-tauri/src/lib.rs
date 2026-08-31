@@ -1,6 +1,6 @@
 mod commands;
 
-use commands::{capture, history, ocr, settings, window};
+use commands::{ai, capture, history, ocr, settings, window};
 use settings_core::{JsonSettingsBackend, SettingsBackend};
 use tauri::{
     menu::{Menu, MenuItem},
@@ -60,6 +60,7 @@ pub fn run() {
             capture::copy_image_to_clipboard,
             capture::read_file_bytes,
             ocr::run_ocr,
+            ai::ai_extract,
             settings::get_settings,
             settings::save_settings,
             history::get_history,

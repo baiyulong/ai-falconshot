@@ -303,6 +303,28 @@ function SettingsPage() {
   const updateHotkeys = (patch: { screenshot?: string; paused?: boolean }) => {
     setSettings({ ...settings, hotkeys: { ...hotkeys, ...patch } });
   };
+  const ai = (settings.ai ?? {}) as {
+    api_key?: string;
+    base_url?: string;
+    model?: string;
+    system_prompt?: string;
+  };
+  const updateAi = (
+    patch: Partial<{ api_key: string; base_url: string; model: string; system_prompt: string }>
+  ) => {
+    setSettings({ ...settings, ai: { ...ai, ...patch } });
+  };
+
+  // Common vision-capable providers; picking one fills the Base URL.
+  const PROVIDERS: { id: string; label: string; baseUrl: string; modelHint: string }[] = [
+    { id: "agnes", label: "Agnes AI（推荐 agnes-2.5-flash，免费）", baseUrl: "https://api.agnes-ai.cn/v1", modelHint: "agnes-2.5-flash" },
+    { id: "dashscope", label: "阿里云百炼（qwen-vl 系列）", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", modelHint: "qwen-vl-plus" },
+    { id: "zhipu", label: "智谱开放平台（glm-4v 系列）", baseUrl: "https://open.bigmodel.cn/api/paas/v4", modelHint: "glm-4v-flash" },
+    { id: "openai", label: "OpenAI（gpt-4o 系列）", baseUrl: "https://api.openai.com/v1", modelHint: "gpt-4o" },
+    { id: "custom", label: "自定义（OpenAI 兼容 /v1 根地址）", baseUrl: "", modelHint: "支持图片输入的模型" },
+  ];
+  const activeProvider =
+    PROVIDERS.find((p) => p.baseUrl !== "" && p.baseUrl === (ai.base_url ?? ""))?.id ?? "custom";
 
   return (
     <div>
@@ -340,6 +362,77 @@ function SettingsPage() {
               暂停快捷键
             </label>
             <p className="text-xs text-gray-400">支持组合键，如 Ctrl+Shift+A。保存后生效。</p>
+          </div>
+        </section>
+
+        <section>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+            AI 识别模型（需支持图片输入的 OpenAI 兼容接口）
+          </h3>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">服务商</label>
+              <select
+                value={activeProvider}
+                onChange={(e) => {
+                  const p = PROVIDERS.find((x) => x.id === e.target.value);
+                  if (!p) return;
+                  updateAi({ base_url: p.baseUrl, model: ai.model || p.modelHint });
+                }}
+                className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+              >
+                {PROVIDERS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">API Key</label>
+              <input
+                type="password"
+                value={ai.api_key ?? ""}
+                onChange={(e) => updateAi({ api_key: e.target.value })}
+                placeholder="sk-..."
+                className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Base URL</label>
+              <input
+                type="text"
+                value={ai.base_url ?? ""}
+                onChange={(e) => updateAi({ base_url: e.target.value })}
+                placeholder="https://api.agnes-ai.cn/v1"
+                className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                填 API 根地址（到 /v1），不要填 images/generations 等具体端点
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">模型</label>
+              <input
+                type="text"
+                value={ai.model ?? ""}
+                onChange={(e) => updateAi({ model: e.target.value })}
+                placeholder="如 qwen-vl-plus / gpt-4o / glm-4v（需支持视觉）"
+                className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                System Prompt（留空使用默认的 OCR 提示词）
+              </label>
+              <textarea
+                value={ai.system_prompt ?? ""}
+                onChange={(e) => updateAi({ system_prompt: e.target.value })}
+                rows={3}
+                className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 resize-none"
+                placeholder="默认：精准提取图片文字，Markdown 输出，表格转 Markdown 表格"
+              />
+            </div>
           </div>
         </section>
 
