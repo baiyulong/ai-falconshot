@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import AnnotationEditor from "./components/AnnotationEditor";
 import { syncLanguageFromSettings } from "./i18n";
@@ -321,9 +322,19 @@ function SettingsPage() {
   const updateHotkeys = (patch: { screenshot?: string; paused?: boolean }) => {
     setSettings({ ...settings, hotkeys: { ...hotkeys, ...patch } });
   };
-  const general = (settings.general ?? {}) as { language?: string };
-  const updateGeneral = (patch: Partial<{ language: string }>) => {
+  const general = (settings.general ?? {}) as {
+    language?: string;
+    default_save_dir?: string;
+    default_image_format?: string;
+  };
+  const updateGeneral = (
+    patch: Partial<{ language: string; default_save_dir: string; default_image_format: string }>
+  ) => {
     setSettings({ ...settings, general: { ...general, ...patch } });
+  };
+  const browseSaveDir = async () => {
+    const dir = await openDialog({ directory: true, multiple: false, title: t("settings.saveDir") });
+    if (typeof dir === "string") updateGeneral({ default_save_dir: dir });
   };
   const ai = (settings.ai ?? {}) as {
     api_key?: string;
@@ -478,11 +489,31 @@ function SettingsPage() {
               {t("settings.launchOnStartup")}
             </label>
             <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{t("settings.saveDir")}</span>
+              <input
+                type="text"
+                value={general.default_save_dir ?? ""}
+                onChange={(e) => updateGeneral({ default_save_dir: e.target.value })}
+                placeholder={t("settings.saveDirPlaceholder")}
+                className="flex-1 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+              />
+              <button
+                onClick={browseSaveDir}
+                className="px-2 py-1 text-sm bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 whitespace-nowrap"
+              >
+                {t("settings.browse")}
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
               <span className="text-sm text-gray-600 dark:text-gray-300">{t("settings.defaultFormat")}</span>
-              <select className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700">
-                <option>PNG</option>
-                <option>JPEG</option>
-                <option>WebP</option>
+              <select
+                value={general.default_image_format ?? "png"}
+                onChange={(e) => updateGeneral({ default_image_format: e.target.value })}
+                className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+              >
+                <option value="png">PNG</option>
+                <option value="jpeg">JPEG</option>
+                <option value="webp">WebP</option>
               </select>
             </div>
           </div>

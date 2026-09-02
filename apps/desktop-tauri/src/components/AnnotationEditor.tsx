@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { join } from "@tauri-apps/api/path";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { syncLanguageFromSettings } from "../i18n";
@@ -125,6 +127,19 @@ const TOOLS: { id: AnnotationTool; icon: ReactNode; titleKey: string }[] = [
 
 const COLORS = ["#FF0000", "#00AEFF", "#00CC00", "#FFCC00", "#FF6600", "#FFFFFF"];
 const WIDTHS = [2, 3, 5, 8];
+
+const FORMAT_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+};
+
+function fileStamp() {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
 
 /// Approximate rendered width of the icon toolbar in CSS pixels; captures
 /// narrower than this still get a window wide enough to show it in full.
@@ -422,11 +437,42 @@ export default function AnnotationEditor() {
   async function save() {
     setSaving(true);
     try {
+      // Initial directory: the configured default from settings, else the
+      // last used one; format default also comes from settings.
+      let startDir = "";
+      let format = "png";
+      try {
+        const s = JSON.parse(await invoke<string>("get_settings")) as {
+          general?: { default_save_dir?: string; default_image_format?: string };
+        };
+        startDir = s.general?.default_save_dir ?? "";
+        format = s.general?.default_image_format ?? "png";
+      } catch {}
+      if (!["png", "jpg", "jpeg", "webp"].includes(format)) format = "png";
+      const lastDir = localStorage.getItem("fs-save-dir") ?? "";
+      const fileName = `FalconShot_${fileStamp()}.${format}`;
+      const path = await saveDialog({
+        title: t("editor.saveDialog"),
+        filters: [
+          { name: "PNG", extensions: ["png"] },
+          { name: "JPEG", extensions: ["jpg", "jpeg"] },
+          { name: "WebP", extensions: ["webp"] },
+        ],
+        defaultPath: (startDir || lastDir) ? await join(startDir || lastDir, fileName) : fileName,
+      });
+      if (!path) return; // cancelled — keep the editor open
+      const ext = path.split(".").pop()?.toLowerCase() ?? "png";
+      const mime = FORMAT_MIME[ext] ?? "image/png";
       const canvas = canvasRef.current!;
-      const blob = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b!), "image/png"));
+      const blob = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b!), mime));
       const buf = new Uint8Array(await blob.arrayBuffer());
-      await invoke("save_annotated_image", { path: imagePath, data: Array.from(buf) });
+      await invoke("save_annotated_image", { path, data: Array.from(buf) });
+      const sep = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+      if (sep > 0) localStorage.setItem("fs-save-dir", path.substring(0, sep));
       onClose();
+    } catch (e) {
+      setPanelError(t("editor.saveFailed", { message: String(e) }));
+      setPanelOpen(true);
     } finally {
       setSaving(false);
     }
