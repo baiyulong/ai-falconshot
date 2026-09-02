@@ -1,6 +1,8 @@
 import { useRef, useState, useEffect, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
+import { syncLanguageFromSettings } from "../i18n";
 
 type AnnotationTool = "rect" | "arrow" | "pen" | "text" | "highlighter";
 
@@ -69,10 +71,10 @@ function editorQuery() {
   };
 }
 
-const TOOLS: { id: AnnotationTool; icon: ReactNode; title: string }[] = [
+const TOOLS: { id: AnnotationTool; icon: ReactNode; titleKey: string }[] = [
   {
     id: "rect",
-    title: "矩形",
+    titleKey: "editor.toolRect",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
         <rect x="2" y="3" width="12" height="10" rx="1" />
@@ -81,7 +83,7 @@ const TOOLS: { id: AnnotationTool; icon: ReactNode; title: string }[] = [
   },
   {
     id: "arrow",
-    title: "箭头",
+    titleKey: "editor.toolArrow",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
         <line x1="2" y1="14" x2="13" y2="3" />
@@ -91,7 +93,7 @@ const TOOLS: { id: AnnotationTool; icon: ReactNode; title: string }[] = [
   },
   {
     id: "pen",
-    title: "画笔",
+    titleKey: "editor.toolPen",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
         <path d="M2 14 C4 8, 8 4, 14 2" strokeLinecap="round" />
@@ -100,7 +102,7 @@ const TOOLS: { id: AnnotationTool; icon: ReactNode; title: string }[] = [
   },
   {
     id: "text",
-    title: "文字",
+    titleKey: "editor.toolText",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
         <line x1="3" y1="3" x2="13" y2="3" />
@@ -111,7 +113,7 @@ const TOOLS: { id: AnnotationTool; icon: ReactNode; title: string }[] = [
   },
   {
     id: "highlighter",
-    title: "高亮",
+    titleKey: "editor.toolHighlighter",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
         <rect x="2" y="6" width="12" height="5" rx="1" fill="currentColor" opacity="0.4" />
@@ -129,11 +131,19 @@ const WIDTHS = [2, 3, 5, 8];
 const TOOLBAR_W_CSS = 585;
 
 export default function AnnotationEditor() {
+  const { t } = useTranslation();
   const { path: imagePath, x: winX, y: winY, w: frameW, h: frameH, ox: padX, oy: padY } =
     editorQuery();
   const onClose = useCallback(() => {
     invoke("close_editor").catch(() => {});
   }, []);
+
+  // Editor windows are independent WebViews: resolve the persisted language
+  // (over the navigator-language first paint) on mount.
+  useEffect(() => {
+    void syncLanguageFromSettings();
+  }, []);
+
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [toolbarW, setToolbarW] = useState(TOOLBAR_W_CSS);
 
@@ -552,18 +562,18 @@ export default function AnnotationEditor() {
               className="mt-2 mr-1 flex items-center gap-1 px-2 py-2 rounded-lg bg-gray-900 border border-gray-700 shadow-xl"
             >
               <div className="flex gap-1">
-                {TOOLS.map((t) => (
+                {TOOLS.map((item) => (
                   <button
-                    key={t.id}
-                    onClick={() => setTool(t.id)}
-                    title={t.title}
+                    key={item.id}
+                    onClick={() => setTool(item.id)}
+                    title={t(item.titleKey)}
                     className={`p-1.5 rounded ${
-                      tool === t.id
+                      tool === item.id
                         ? "text-primary bg-primary/10"
                         : "text-gray-400 hover:text-white hover:bg-gray-800"
                     }`}
                   >
-                    {t.icon}
+                    {item.icon}
                   </button>
                 ))}
               </div>
@@ -592,7 +602,7 @@ export default function AnnotationEditor() {
                     e.stopPropagation();
                     setWidthMenuOpen((o) => !o);
                   }}
-                  title="线条粗细"
+                  title={t("editor.strokeWidth")}
                   className="flex items-center gap-1 px-1.5 py-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
                 >
                   <div className="w-7 rounded-full bg-current" style={{ height: strokeWidth }} />
@@ -627,7 +637,7 @@ export default function AnnotationEditor() {
                 <button
                   onClick={undo}
                   disabled={objects.length === 0}
-                  title="撤销 (Ctrl+Z)"
+                  title={t("editor.undo")}
                   className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -637,7 +647,7 @@ export default function AnnotationEditor() {
                 <button
                   onClick={redo}
                   disabled={redoStack.length === 0}
-                  title="重做 (Ctrl+Y)"
+                  title={t("editor.redo")}
                   className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -652,7 +662,7 @@ export default function AnnotationEditor() {
                 <button
                   onClick={pinImage}
                   disabled={saving}
-                  title="贴图（双击贴图关闭）"
+                  title={t("editor.pin")}
                   className="p-1.5 rounded text-amber-400 hover:text-amber-300 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -663,7 +673,7 @@ export default function AnnotationEditor() {
                 <button
                   onClick={extractText}
                   disabled={ocrLoading}
-                  title="提取文本（本地 OCR）"
+                  title={t("editor.extractText")}
                   className="p-1.5 rounded text-purple-400 hover:text-purple-300 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -676,7 +686,7 @@ export default function AnnotationEditor() {
                 <button
                   onClick={runAiExtract}
                   disabled={aiLoading}
-                  title="AI 识别（Markdown，需在设置中配置模型）"
+                  title={t("editor.aiExtract")}
                   className="p-1.5 rounded text-indigo-400 hover:text-indigo-300 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -692,7 +702,7 @@ export default function AnnotationEditor() {
                 <button
                   onClick={copy}
                   disabled={saving}
-                  title="复制到剪贴板"
+                  title={t("editor.copyToClipboard")}
                   className="p-1.5 rounded text-green-400 hover:text-green-300 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -703,7 +713,7 @@ export default function AnnotationEditor() {
                 <button
                   onClick={save}
                   disabled={saving}
-                  title="保存"
+                  title={t("editor.save")}
                   className="p-1.5 rounded text-primary hover:text-primary/80 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -714,7 +724,7 @@ export default function AnnotationEditor() {
                 </button>
                 <button
                   onClick={onClose}
-                  title="关闭 (Esc)"
+                  title={t("editor.close")}
                   className="p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-gray-800"
                 >
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -730,7 +740,7 @@ export default function AnnotationEditor() {
               <div className="absolute bottom-full right-0 mb-2 w-[min(440px,calc(100vw-16px))] max-h-[55vh] flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-2xl overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 border-b border-gray-700 shrink-0">
                   <span className="text-sm font-medium text-gray-200">
-                    {aiResult ? "AI 识别结果（Markdown）" : "提取的文本"}
+                    {aiResult ? t("editor.aiResultTitle") : t("editor.extractedTitle")}
                   </span>
                   <div className="flex items-center gap-2">
                     {(ocrResult || aiResult) && !ocrLoading && !aiLoading && (
@@ -738,12 +748,12 @@ export default function AnnotationEditor() {
                         onClick={copyPanelText}
                         className="px-2 py-0.5 text-xs bg-gray-700 rounded hover:bg-gray-600 text-gray-200"
                       >
-                        {panelCopied ? "已复制" : "复制"}
+                        {panelCopied ? t("common.copied") : t("editor.copy")}
                       </button>
                     )}
                     <button
                       onClick={() => setPanelOpen(false)}
-                      title="关闭面板"
+                      title={t("editor.closePanel")}
                       className="p-1 text-gray-400 hover:text-white"
                     >
                       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -759,11 +769,11 @@ export default function AnnotationEditor() {
                       {panelError}
                     </div>
                   )}
-                  {ocrLoading && <p className="text-sm text-gray-400">识别中...</p>}
-                  {aiLoading && <p className="text-sm text-gray-400">AI 识别中，请稍候...</p>}
+                  {ocrLoading && <p className="text-sm text-gray-400">{t("editor.ocrRunning")}</p>}
+                  {aiLoading && <p className="text-sm text-gray-400">{t("editor.aiRunning")}</p>}
                   {ocrResult && !ocrLoading && (
                     <pre className="whitespace-pre-wrap text-sm text-gray-100 font-mono">
-                      {ocrResult.text || "(未识别到文字)"}
+                      {ocrResult.text || t("editor.noText")}
                     </pre>
                   )}
                   {aiResult && !aiLoading && (
@@ -791,7 +801,7 @@ export default function AnnotationEditor() {
           onBlur={commitText}
           className="fixed z-50 px-2 py-1 text-sm bg-white text-black border-2 border-primary rounded shadow-lg"
           style={{ left: textInput.x, top: textInput.y }}
-          placeholder="输入文字..."
+          placeholder={t("editor.textPlaceholder")}
           autoFocus
         />
       )}

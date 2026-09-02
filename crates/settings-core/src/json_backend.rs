@@ -128,7 +128,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let backend = JsonSettingsBackend::new(path.clone());
         let settings = backend.load().unwrap();
-        assert_eq!(settings.general.language, "zh-CN");
+        assert_eq!(settings.general.language, "system");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -155,7 +155,7 @@ mod tests {
         let _ = backend.load().unwrap();
 
         let val = backend.get_value("general.language").unwrap();
-        assert_eq!(val, Some(serde_json::json!("zh-CN")));
+        assert_eq!(val, Some(serde_json::json!("system")));
 
         let missing = backend.get_value("nonexistent.key").unwrap();
         assert_eq!(missing, None);
@@ -174,7 +174,7 @@ mod tests {
 
         backend.reset_defaults().unwrap();
         let loaded = backend.load().unwrap();
-        assert_eq!(loaded.general.language, "zh-CN");
+        assert_eq!(loaded.general.language, "system");
         let _ = std::fs::remove_file(&path);
     }
 }

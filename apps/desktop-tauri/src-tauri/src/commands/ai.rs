@@ -1,3 +1,4 @@
+use crate::i18n::{self, Str};
 use settings_core::{JsonSettingsBackend, SettingsBackend};
 
 const DEFAULT_SYSTEM_PROMPT: &str = "你是一个精准的图像文字识别（OCR）助手。请提取图片中的全部文字内容，保持原有段落与层级结构，使用 Markdown 格式输出（表格转为 Markdown 表格，代码使用代码块）。只输出识别到的内容本身，不要添加任何解释或额外说明。";
@@ -32,6 +33,7 @@ fn base64_encode(data: &[u8]) -> String {
 /// the recognized content (Markdown) from the first choice.
 #[tauri::command]
 pub async fn ai_extract(path: String, prompt: Option<String>) -> Result<String, String> {
+    let lang = i18n::resolve_lang();
     let settings = JsonSettingsBackend::new(JsonSettingsBackend::default_path())
         .load()
         .map_err(|e| e.to_string())?;
@@ -42,7 +44,7 @@ pub async fn ai_extract(path: String, prompt: Option<String>) -> Result<String, 
         std::env::var("FALCONSHOT_AI_KEY").unwrap_or_default()
     };
     if api_key.is_empty() {
-        return Err("请先在设置页填写 API Key（需要支持视觉的模型）".to_string());
+        return Err(i18n::tr(lang, Str::AiNoApiKey).to_string());
     }
     let base_url = settings
         .ai
@@ -88,10 +90,7 @@ pub async fn ai_extract(path: String, prompt: Option<String>) -> Result<String, 
     // endpoint pasted in. Image-generation endpoints cannot do OCR.
     let mut url = base_url.trim_end_matches('/').to_string();
     if url.ends_with("/images/generations") {
-        return Err(
-            "Base URL 指向的是图片生成接口（images/generations），无法用于文字识别。请填写 API 根地址，例如 https://api.agnes-ai.cn/v1"
-                .to_string(),
-        );
+        return Err(i18n::tr(lang, Str::AiImageGenUrl).to_string());
     }
     if !url.ends_with("/chat/completions") {
         url.push_str("/chat/completions");
@@ -103,23 +102,23 @@ pub async fn ai_extract(path: String, prompt: Option<String>) -> Result<String, 
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("请求失败: {e}"))?;
+        .map_err(|e| i18n::ai_request_failed(lang, &e.to_string()))?;
 
     let status = resp.status();
     let json: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("解析响应失败: {e}"))?;
+        .map_err(|e| i18n::ai_parse_failed(lang, &e.to_string()))?;
     if !status.is_success() {
         let msg = match json["error"]["message"].as_str() {
             Some(m) => m.to_string(),
             None => json.to_string(),
         };
-        return Err(format!("API 错误 {status}（POST {url}）: {msg}"));
+        return Err(i18n::ai_api_error(lang, &status.to_string(), &url, &msg));
     }
 
     json["choices"][0]["message"]["content"]
         .as_str()
         .map(str::to_string)
-        .ok_or_else(|| "响应中缺少识别内容".to_string())
+        .ok_or_else(|| i18n::tr(lang, Str::AiNoContent).to_string())
 }

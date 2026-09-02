@@ -165,10 +165,12 @@ fn open_editor_window(app: &tauri::AppHandle, path: &str, rect: &Rect) -> Result
     );
 
     let owner = app.clone();
+    let title =
+        crate::i18n::tr(crate::i18n::resolve_lang(), crate::i18n::Str::EditorTitle).to_string();
     app.run_on_main_thread(move || {
         if let Err(e) =
             tauri::WebviewWindowBuilder::new(&owner, &label, tauri::WebviewUrl::App(url.into()))
-                .title("FalconShot 编辑")
+                .title(title)
                 .decorations(false)
                 .transparent(true)
                 .shadow(false)

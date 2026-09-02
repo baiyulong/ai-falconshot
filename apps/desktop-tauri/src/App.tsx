@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import AnnotationEditor from "./components/AnnotationEditor";
+import { syncLanguageFromSettings } from "./i18n";
 
 type Page = "settings" | "history" | "ocr";
 
@@ -14,27 +16,34 @@ function App() {
 }
 
 function MainApp() {
+  const { t } = useTranslation();
   const [currentPage, setCurrentPage] = useState<Page>("settings");
   const [captureStatus, setCaptureStatus] = useState("");
 
+  useEffect(() => {
+    void syncLanguageFromSettings();
+  }, []);
+
   const startCapture = async () => {
-    setCaptureStatus("选区中...");
+    setCaptureStatus(t("capture.selecting"));
     try {
       await invoke("start_capture");
       setCaptureStatus("");
     } catch (e) {
-      setCaptureStatus(String(e) === "cancelled" ? "已取消" : `失败: ${e}`);
+      setCaptureStatus(
+        String(e) === "cancelled" ? t("capture.cancelled") : t("capture.failed", { message: String(e) })
+      );
       setTimeout(() => setCaptureStatus(""), 5000);
     }
   };
 
   const fullscreenCapture = async () => {
-    setCaptureStatus("截图中...");
+    setCaptureStatus(t("capture.capturing"));
     try {
       await invoke("capture_fullscreen");
       setCaptureStatus("");
     } catch (e) {
-      setCaptureStatus(`失败: ${e}`);
+      setCaptureStatus(t("capture.failed", { message: String(e) }));
       setTimeout(() => setCaptureStatus(""), 5000);
     }
   };
@@ -54,9 +63,9 @@ function MainApp() {
                     : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                 }`}
               >
-                {page === "settings" && "设置"}
-                {page === "history" && "历史记录"}
-                {page === "ocr" && "提取文本"}
+                {page === "settings" && t("nav.settings")}
+                {page === "history" && t("nav.history")}
+                {page === "ocr" && t("nav.ocr")}
               </button>
             </li>
           ))}
@@ -67,13 +76,13 @@ function MainApp() {
             onClick={startCapture}
             className="w-full px-3 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary/90"
           >
-            区域截图
+            {t("capture.region")}
           </button>
           <button
             onClick={fullscreenCapture}
             className="w-full px-3 py-2 bg-gray-600 text-white rounded-md text-sm hover:bg-gray-500"
           >
-            全屏截图
+            {t("capture.fullscreen")}
           </button>
           {captureStatus && (
             <p className="text-xs text-gray-500 dark:text-gray-400 break-all">{captureStatus}</p>
@@ -105,6 +114,7 @@ interface OcrResult {
 }
 
 function OcrPage() {
+  const { t } = useTranslation();
   const [imagePath, setImagePath] = useState("");
   const [result, setResult] = useState<OcrResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -135,14 +145,14 @@ function OcrPage() {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-gray-100">提取文本</h2>
+      <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-gray-100">{t("ocr.title")}</h2>
 
       <div className="flex gap-2 mb-4">
         <input
           type="text"
           value={imagePath}
           onChange={(e) => setImagePath(e.target.value)}
-          placeholder="输入图片路径..."
+          placeholder={t("ocr.placeholder")}
           className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 text-sm"
           onKeyDown={(e) => e.key === "Enter" && runOcr()}
         />
@@ -151,7 +161,7 @@ function OcrPage() {
           disabled={loading}
           className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary/90 disabled:opacity-50"
         >
-          {loading ? "识别中..." : "识别"}
+          {loading ? t("ocr.running") : t("ocr.run")}
         </button>
       </div>
 
@@ -165,13 +175,17 @@ function OcrPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="text-sm text-gray-500 dark:text-gray-400">
-              语言: {result.language} | 置信度: {(result.confidence * 100).toFixed(0)}% | 耗时: {result.duration_ms}ms
+              {t("ocr.meta", {
+                language: result.language,
+                confidence: (result.confidence * 100).toFixed(0),
+                duration: result.duration_ms,
+              })}
             </div>
             <button
               onClick={copyText}
               className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600"
             >
-              {copied ? "已复制" : "复制文本"}
+              {copied ? t("common.copied") : t("ocr.copy")}
             </button>
           </div>
 
@@ -186,9 +200,9 @@ function OcrPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 dark:bg-gray-800">
                   <tr>
-                    <th className="text-left px-3 py-2 text-gray-500">类型</th>
-                    <th className="text-left px-3 py-2 text-gray-500">内容</th>
-                    <th className="text-right px-3 py-2 text-gray-500">置信度</th>
+                    <th className="text-left px-3 py-2 text-gray-500">{t("ocr.colType")}</th>
+                    <th className="text-left px-3 py-2 text-gray-500">{t("ocr.colContent")}</th>
+                    <th className="text-right px-3 py-2 text-gray-500">{t("ocr.colConfidence")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -218,6 +232,7 @@ interface HistoryEntry {
 }
 
 function HistoryPage() {
+  const { t } = useTranslation();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -236,21 +251,21 @@ function HistoryPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">历史记录</h2>
+        <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">{t("history.title")}</h2>
         {entries.length > 0 && (
           <button
             onClick={clearAll}
             className="px-3 py-1 text-sm text-red-500 border border-red-200 dark:border-red-800 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20"
           >
-            清空
+            {t("history.clear")}
           </button>
         )}
       </div>
 
       {loading ? (
-        <p className="text-gray-500">加载中...</p>
+        <p className="text-gray-500">{t("common.loading")}</p>
       ) : entries.length === 0 ? (
-        <p className="text-gray-500 dark:text-gray-400">暂无历史记录</p>
+        <p className="text-gray-500 dark:text-gray-400">{t("history.empty")}</p>
       ) : (
         <div className="space-y-2">
           {entries.map((entry) => (
@@ -281,6 +296,7 @@ function HistoryPage() {
 }
 
 function SettingsPage() {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -293,15 +309,21 @@ function SettingsPage() {
   const save = async () => {
     if (!settings) return;
     await invoke("save_settings", { settingsJson: JSON.stringify(settings) });
+    // A persisted language change (including "system") applies immediately.
+    void syncLanguageFromSettings();
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
-  if (!settings) return <p className="text-gray-500">加载中...</p>;
+  if (!settings) return <p className="text-gray-500">{t("common.loading")}</p>;
 
   const hotkeys = (settings.hotkeys ?? {}) as { screenshot?: string; paused?: boolean };
   const updateHotkeys = (patch: { screenshot?: string; paused?: boolean }) => {
     setSettings({ ...settings, hotkeys: { ...hotkeys, ...patch } });
+  };
+  const general = (settings.general ?? {}) as { language?: string };
+  const updateGeneral = (patch: Partial<{ language: string }>) => {
+    setSettings({ ...settings, general: { ...general, ...patch } });
   };
   const ai = (settings.ai ?? {}) as {
     api_key?: string;
@@ -317,11 +339,11 @@ function SettingsPage() {
 
   // Common vision-capable providers; picking one fills the Base URL.
   const PROVIDERS: { id: string; label: string; baseUrl: string; modelHint: string }[] = [
-    { id: "agnes", label: "Agnes AI（推荐 agnes-2.5-flash，免费）", baseUrl: "https://api.agnes-ai.cn/v1", modelHint: "agnes-2.5-flash" },
-    { id: "dashscope", label: "阿里云百炼（qwen-vl 系列）", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", modelHint: "qwen-vl-plus" },
-    { id: "zhipu", label: "智谱开放平台（glm-4v 系列）", baseUrl: "https://open.bigmodel.cn/api/paas/v4", modelHint: "glm-4v-flash" },
-    { id: "openai", label: "OpenAI（gpt-4o 系列）", baseUrl: "https://api.openai.com/v1", modelHint: "gpt-4o" },
-    { id: "custom", label: "自定义（OpenAI 兼容 /v1 根地址）", baseUrl: "", modelHint: "支持图片输入的模型" },
+    { id: "agnes", label: t("settings.providerAgnes"), baseUrl: "https://api.agnes-ai.cn/v1", modelHint: "agnes-2.5-flash" },
+    { id: "dashscope", label: t("settings.providerDashscope"), baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", modelHint: "qwen-vl-plus" },
+    { id: "zhipu", label: t("settings.providerZhipu"), baseUrl: "https://open.bigmodel.cn/api/paas/v4", modelHint: "glm-4v-flash" },
+    { id: "openai", label: t("settings.providerOpenai"), baseUrl: "https://api.openai.com/v1", modelHint: "gpt-4o" },
+    { id: "custom", label: t("settings.providerCustom"), baseUrl: "", modelHint: t("settings.customModelHint") },
   ];
   const activeProvider =
     PROVIDERS.find((p) => p.baseUrl !== "" && p.baseUrl === (ai.base_url ?? ""))?.id ?? "custom";
@@ -329,21 +351,21 @@ function SettingsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">设置</h2>
+        <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">{t("settings.title")}</h2>
         <button
           onClick={save}
           className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary/90"
         >
-          {saved ? "已保存" : "保存"}
+          {saved ? t("settings.saved") : t("settings.save")}
         </button>
       </div>
 
       <div className="space-y-6 max-w-lg">
         <section>
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">快捷键</h3>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">{t("settings.hotkeys")}</h3>
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">截图:</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{t("settings.screenshotLabel")}</span>
               <input
                 type="text"
                 value={hotkeys.screenshot ?? "F2"}
@@ -359,19 +381,19 @@ function SettingsPage() {
                 onChange={(e) => updateHotkeys({ paused: e.target.checked })}
                 className="rounded"
               />
-              暂停快捷键
+              {t("settings.pauseHotkeys")}
             </label>
-            <p className="text-xs text-gray-400">支持组合键，如 Ctrl+Shift+A。保存后生效。</p>
+            <p className="text-xs text-gray-400">{t("settings.hotkeyHint")}</p>
           </div>
         </section>
 
         <section>
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
-            AI 识别模型（需支持图片输入的 OpenAI 兼容接口）
+            {t("settings.aiSection")}
           </h3>
           <div className="space-y-3">
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">服务商</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{t("settings.provider")}</label>
               <select
                 value={activeProvider}
                 onChange={(e) => {
@@ -389,7 +411,7 @@ function SettingsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">API Key</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{t("settings.apiKey")}</label>
               <input
                 type="password"
                 value={ai.api_key ?? ""}
@@ -399,7 +421,7 @@ function SettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Base URL</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{t("settings.baseUrl")}</label>
               <input
                 type="text"
                 value={ai.base_url ?? ""}
@@ -408,43 +430,55 @@ function SettingsPage() {
                 className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
               />
               <p className="text-xs text-gray-400 mt-1">
-                填 API 根地址（到 /v1），不要填 images/generations 等具体端点
+                {t("settings.baseUrlHint")}
               </p>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">模型</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{t("settings.model")}</label>
               <input
                 type="text"
                 value={ai.model ?? ""}
                 onChange={(e) => updateAi({ model: e.target.value })}
-                placeholder="如 qwen-vl-plus / gpt-4o / glm-4v（需支持视觉）"
+                placeholder={t("settings.modelPlaceholder")}
                 className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
               />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                System Prompt（留空使用默认的 OCR 提示词）
+                {t("settings.systemPrompt")}
               </label>
               <textarea
                 value={ai.system_prompt ?? ""}
                 onChange={(e) => updateAi({ system_prompt: e.target.value })}
                 rows={3}
                 className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 resize-none"
-                placeholder="默认：精准提取图片文字，Markdown 输出，表格转 Markdown 表格"
+                placeholder={t("settings.systemPromptPlaceholder")}
               />
             </div>
           </div>
         </section>
 
         <section>
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">通用</h3>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">{t("settings.general")}</h3>
           <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{t("settings.language")}:</span>
+              <select
+                value={general.language ?? "system"}
+                onChange={(e) => updateGeneral({ language: e.target.value })}
+                className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+              >
+                <option value="system">{t("settings.languageSystem")}</option>
+                <option value="zh-CN">{t("settings.languageZh")}</option>
+                <option value="en">{t("settings.languageEn")}</option>
+              </select>
+            </div>
             <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
               <input type="checkbox" defaultChecked={false} className="rounded" />
-              开机自启动
+              {t("settings.launchOnStartup")}
             </label>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600 dark:text-gray-300">默认保存格式:</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">{t("settings.defaultFormat")}</span>
               <select className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700">
                 <option>PNG</option>
                 <option>JPEG</option>
@@ -455,29 +489,29 @@ function SettingsPage() {
         </section>
 
         <section>
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">截图</h3>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">{t("settings.captureSection")}</h3>
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
               <input type="checkbox" defaultChecked className="rounded" />
-              显示放大镜
+              {t("settings.showMagnifier")}
             </label>
             <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
               <input type="checkbox" defaultChecked className="rounded" />
-              显示尺寸标注
+              {t("settings.showDimensions")}
             </label>
           </div>
         </section>
 
         <section>
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">贴图</h3>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">{t("settings.pinSection")}</h3>
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
               <input type="checkbox" defaultChecked className="rounded" />
-              启动时恢复贴图
+              {t("settings.restorePins")}
             </label>
             <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
               <input type="checkbox" defaultChecked className="rounded" />
-              退出时保存状态
+              {t("settings.savePinState")}
             </label>
           </div>
         </section>

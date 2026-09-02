@@ -119,7 +119,9 @@ impl Default for AppSettings {
         Self {
             general: GeneralSettings {
                 launch_on_startup: false,
-                language: "zh-CN".to_string(),
+                // "system" follows the OS UI language; resolved to
+                // "zh-CN"/"en" by the app layers.
+                language: "system".to_string(),
                 default_save_dir: String::new(),
                 default_image_format: "png".to_string(),
             },
