@@ -1,12 +1,48 @@
 mod commands;
+mod i18n;
 
 use commands::{ai, capture, history, ocr, settings, window};
+use i18n::{Lang, Str};
 use settings_core::{JsonSettingsBackend, SettingsBackend};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager,
 };
+
+/// Physical size the taskbar draws tray icons at, straight from the OS —
+/// the authoritative value (16 logical px × monitor DPI in a PMv2 process),
+/// no guessing from monitor APIs.
+#[cfg(windows)]
+fn tray_icon_size() -> u32 {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSMICON};
+    unsafe { GetSystemMetrics(SM_CXSMICON).max(16) as u32 }
+}
+
+#[cfg(not(windows))]
+fn tray_icon_size() -> u32 {
+    32
+}
+
+/// Build the tray menu for the given language. Rebuilt at setup and again in
+/// `save_settings` when the user changes the UI language.
+pub fn build_tray_menu(app: &tauri::AppHandle, lang: Lang) -> tauri::Result<Menu<tauri::Wry>> {
+    let show_item = MenuItem::with_id(
+        app,
+        "show",
+        i18n::tr(lang, Str::TrayShow),
+        true,
+        None::<&str>,
+    )?;
+    let quit_item = MenuItem::with_id(
+        app,
+        "quit",
+        i18n::tr(lang, Str::TrayQuit),
+        true,
+        None::<&str>,
+    )?;
+    Menu::with_items(app, &[&show_item, &quit_item])
+}
 
 /// (Re-)register the global screenshot hotkey. An empty string unregisters
 /// (used while hotkeys are paused).
@@ -20,7 +56,7 @@ pub fn apply_screenshot_hotkey(app: &tauri::AppHandle, hotkey: &str) -> Result<(
     }
     let shortcut: tauri_plugin_global_shortcut::Shortcut = hotkey
         .parse()
-        .map_err(|_| format!("无效的快捷键: {hotkey}"))?;
+        .map_err(|_| i18n::hotkey_invalid(i18n::resolve_lang(), hotkey))?;
     gs.register(shortcut).map_err(|e| e.to_string())
 }
 
@@ -70,18 +106,25 @@ pub fn run() {
             window::pin_image,
         ])
         .setup(|app| {
-            let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let lang = i18n::resolve_lang();
+            let menu = build_tray_menu(app.handle(), lang)?;
 
-            let icon_bytes = include_bytes!("../icons/icon.png");
+            // tray.png is a small-size optimized variant of the logo (tight
+            // crop, posterized colors) — gradients from the 1024px master
+            // turn to mush at tray sizes. Pre-scale with Lanczos to exactly
+            // the size the taskbar uses (SM_CXSMICON) so the OS never
+            // stretches it.
+            let tray_size = tray_icon_size();
+            eprintln!("tray icon size: {tray_size}px");
+            let icon_bytes = include_bytes!("../icons/tray.png");
             let icon_img = image::load_from_memory(icon_bytes)
                 .expect("failed to decode tray icon")
+                .resize_exact(tray_size, tray_size, image::imageops::FilterType::Lanczos3)
                 .to_rgba8();
             let (w, h) = icon_img.dimensions();
             let tray_icon = tauri::image::Image::new_owned(icon_img.into_raw(), w, h);
 
-            let _tray = TrayIconBuilder::new()
+            let _tray = TrayIconBuilder::with_id("main")
                 .icon(tray_icon)
                 .menu(&menu)
                 .tooltip("FalconShot")

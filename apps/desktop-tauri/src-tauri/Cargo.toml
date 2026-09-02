@@ -27,6 +27,8 @@ storage-core = { path = "../../../crates/storage-core" }
 settings-core = { path = "../../../crates/settings-core" }
 platform-windows = { path = "../../../platform/windows" }
 urlencoding = "2"
+sys-locale = "0.3"
+windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging"] }
 tauri-plugin-global-shortcut = "2.3.2"
 
 [features]
