@@ -1,4 +1,10 @@
+<p align="center"><img src="docs/assets/logo-mark.png" alt="FalconShot logo" width="130" /></p>
+
 # FalconShot
+
+<p align="center">
+  <strong>简体中文</strong> | <a href="README.en.md">English</a> | <a href="https://baiyulong.github.io/ai-falconshot/">项目主页</a>
+</p>
 
 智能截图、贴图、OCR 与 AI 视觉识别的 Windows 桌面工具。
 
@@ -14,6 +20,7 @@
 - **AI 识别**：将截图发给支持视觉的大模型，按 Markdown 输出（表格转 Markdown 表格、代码块），System Prompt 可自定义
 - **剪贴板**：复制同时写入 DIB 与 PNG 格式，粘贴到聊天窗口、文档均可用
 - **历史记录**：截图自动留存，可回溯
+- **界面语言**：简体中文 / English，默认跟随系统语言，可在设置中切换
 
 ## AI 模型配置
 
