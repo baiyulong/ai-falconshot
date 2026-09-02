@@ -3,7 +3,7 @@
 # FalconShot
 
 <p align="center">
-  <strong>简体中文</strong> | <a href="README.en.md">English</a> | <a href="https://baiyulong.github.io/ai-falconshot/">项目主页</a>
+  <strong>简体中文</strong> | <a href="README.en.md">English</a> | <a href="https://baiyulong.github.io/ai-falconshot/">项目主页</a> | <a href="https://baiyulong.github.io/ai-falconshot/privacy.html">隐私政策</a>
 </p>
 
 智能截图、贴图、OCR 与 AI 视觉识别的 Windows 桌面工具。

@@ -3,7 +3,7 @@
 # FalconShot
 
 <p align="center">
-  <a href="README.md">简体中文</a> | <strong>English</strong> | <a href="https://baiyuling.github.io/ai-falconshot/">Homepage</a>
+  <a href="README.md">简体中文</a> | <strong>English</strong> | <a href="https://baiyulong.github.io/ai-falconshot/">Homepage</a> | <a href="https://baiyulong.github.io/ai-falconshot/privacy.html">Privacy</a>
 </p>
 
 A Windows desktop tool for smart screenshots, pinned images, OCR and AI vision.

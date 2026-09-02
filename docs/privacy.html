@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>隐私政策 · Privacy Policy — FalconShot</title>
+<style>
+  :root {
+    --accent: #00aeff;
+    --bg: #0d1220;
+    --panel: #151c2e;
+    --border: #232d45;
+    --text: #e8edf7;
+    --muted: #93a0ba;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.75;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-size: 30px; margin-bottom: 6px; }
+  .updated { color: var(--muted); font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 19px; margin: 28px 0 10px; color: var(--accent); }
+  p, li { font-size: 15px; margin-bottom: 10px; }
+  ul { padding-left: 22px; margin-bottom: 12px; }
+  li { margin-bottom: 4px; }
+  a { color: var(--accent); text-decoration: none; }
+  code { background: #1c2438; border-radius: 4px; padding: 1px 6px; font-size: 13px; }
+  .tl { color: var(--muted); font-size: 13px; }
+  .en-note { color: var(--muted); }
+  #toggle { float: right; }
+  .btn {
+    display: inline-block; padding: 7px 14px; border-radius: 6px; font-size: 13px;
+    background: transparent; border: 1px solid var(--border); color: var(--text);
+    cursor: pointer; font-family: inherit;
+  }
+  .btn:hover { border-color: var(--accent); }
+  [data-en], [data-zh] { display: none; }
+  html.lang-zh [data-zh] { display: block; }
+  html.lang-en [data-en] { display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <button id="toggle" class="btn" type="button"></button>
+  <h1>FalconShot 隐私政策</h1>
+  <p class="updated">生效日期：2026 年 9 月 2 日</p>
+
+  <div data-zh>
+
+  <p>FalconShot 是一款开源的 Windows 截图工具（Rust + Tauri 2 构建），其源代码公开在 GitHub。本政策说明应用在你的设备上存储、发送哪些数据，以及你可以如何控制。</p>
+  <p class="tl"><strong>一句话版本：</strong>截图默认只保存在你的电脑上；应用不收集遥测、不做统计、不投放广告；唯一可能把截图内容发送到网络的功能是“AI 识别”，且仅在<strong>你主动点击</strong>、发送到<strong>你自己配置的模型服务商</strong>时才会发生。</p>
+
+  <h2>1. 本地存储的数据</h2>
+  <ul>
+    <li><strong>截图文件</strong>：每次截图会保存在本地 <code>%APPDATA%\FalconShot\captures\</code>（含标注后覆盖）。应用不会自动删除或上传这些文件；使用“保存”按钮可另存到你选择的位置。删除由你或系统清理完成。</li>
+    <li><strong>设置文件</strong>：<code>%APPDATA%\FalconShot\settings.json</code> 保存你的偏好（界面语言、默认保存位置/格式、快捷键等）。若你填写了 AI API Key，它同样以<strong>明文</strong>保存在该文件中，仅在你本机使用，不会上传到 FalconShot 的任何服务器（本产品没有服务器）。你也可以改用环境变量 <code>FALCONSHOT_AI_KEY</code>，从而避免密钥写入磁盘。</li>
+    <li><strong>历史记录</strong>：应用可能在本机维护截图历史索引；其中的记录不离开你的设备。请注意，“加密历史”等隐私设置项在当前版本中尚<strong>未生效</strong>。</li>
+  </ul>
+
+  <h2>2. 网络发送的数据</h2>
+  <ul>
+    <li><strong>AI 识别（可选）</strong>：当你在编辑器中点击“AI 识别”时，该截图会被发送到你<strong>在设置中自行配置</strong>的、支持视觉的模型接口（OpenAI 兼容，默认指向 DeepSeek），同时发送你的模型名与提示词。你的 API Key 仅作为请求头发送给该服务商。是否使用、使用哪家服务商，完全由你决定并自行对第三方处理负责。</li>
+    <li><strong>本地 OCR（可选）</strong>：点击“提取文本”时，截图仅在设备本地由 Windows 系统组件识别，<strong>不发送到网络</strong>。</li>
+    <li>除此之外，应用<strong>没有任何遥测、统计、崩溃上报或自动更新</strong>功能，也不会在后台发起网络请求。</li>
+  </ul>
+
+  <h2>3. 剪贴板</h2>
+  <p>应用只在<strong>你主动点击</strong>“复制”时写入剪贴板，从不读取剪贴板内容。</p>
+
+  <h2>4. 权限与全局快捷键</h2>
+  <p>默认的全局快捷键（F2）只在你的设备本地触发截图流程；应用不会因此上传任何内容。</p>
+
+  <h2>5. 第三方</h2>
+  <p>本产品不使用广告或第三方跟踪 SDK。若你启用 AI 识别，截图、提示词将与<strong>你选择的第三方 AI 服务商</strong>共享，其数据处理适用该服务商的政策。</p>
+
+  <h2>6. 你的权利与联系</h2>
+  <p>你随时可以删除 <code>%APPDATA%\FalconShot\</code> 目录来清除全部本地数据。本政策如有变更会在此页面更新。项目主页：<a href="https://baiyulong.github.io/ai-falconshot/">baiyulong.github.io/ai-falconshot</a>。</p>
+
+  </div>
+
+  <div data-en>
+
+  <p>FalconShot is an open-source screenshot tool for Windows, built with Rust and Tauri 2; its source code is public on GitHub. This policy explains what data the app stores or sends from your device, and how you can control it.</p>
+  <p class="tl"><strong>TL;DR:</strong> Screenshots stay on your computer by default. The app has no telemetry, no analytics and no ads. The only feature that can send screenshot content over the network is "AI recognition", which happens only when <strong>you click it</strong> and sends to the <strong>model provider you configured yourself</strong>.</p>
+
+  <h2>1. Data stored locally</h2>
+  <ul>
+    <li><strong>Screenshots</strong>: each capture is saved to <code>%APPDATA%\FalconShot\captures\</code> locally (overwritten after annotation). The app never uploads or auto-deletes them; the "Save" button lets you save elsewhere. Deleting them is up to you or system cleanup.</li>
+    <li><strong>Settings</strong>: <code>%APPDATA%\FalconShot\settings.json</code> holds your preferences (UI language, default save location/format, hotkeys, …). If you enter an AI API key, it is stored <strong>in plain text</strong> in that file and used only on your machine — it is never sent to any FalconShot server (there is none). Alternatively, use the <code>FALCONSHOT_AI_KEY</code> environment variable so the key is never written to disk.</li>
+    <li><strong>History</strong>: the app may keep a local index of past captures; it never leaves your device. Note that privacy settings such as "encrypt history" are <strong>not effective yet</strong> in the current version.</li>
+  </ul>
+
+  <h2>2. Data sent over the network</h2>
+  <ul>
+    <li><strong>AI recognition (optional)</strong>: when you click "AI recognition" in the editor, that screenshot is sent to a vision-capable model endpoint <strong>you configured in Settings</strong> (OpenAI-compatible; defaults to DeepSeek), together with your model name and prompts. Your API key is sent only as a request header to that provider. Whether you use it, and with which provider, is entirely your choice; processing by that third party is subject to their policy.</li>
+    <li><strong>Local OCR (optional)</strong>: clicking "Extract text" recognizes the screenshot on-device via a Windows system component — <strong>nothing is sent to the network</strong>.</li>
+    <li>Otherwise the app has <strong>no telemetry, analytics, crash reporting or auto-update</strong>, and makes no background network requests.</li>
+  </ul>
+
+  <h2>3. Clipboard</h2>
+  <p>The app writes to the clipboard only when <strong>you click</strong> "Copy". It never reads clipboard content.</p>
+
+  <h2>4. Permissions &amp; global hotkey</h2>
+  <p>The default global hotkey (F2) only triggers the local capture flow on your device; nothing is uploaded because of it.</p>
+
+  <h2>5. Third parties</h2>
+  <p>This product uses no ads and no third-party tracking SDKs. If you enable AI recognition, screenshots and prompts are shared with the <strong>third-party AI provider you choose</strong>; their data handling is governed by that provider's policy.</p>
+
+  <h2>6. Your rights &amp; contact</h2>
+  <p>You can delete the <code>%APPDATA%\FalconShot\</code> folder at any time to remove all local data. Any changes to this policy will be posted on this page. Project homepage: <a href="https://baiyulong.github.io/ai-falconshot/">baiyulong.github.io/ai-falconshot</a>.</p>
+
+  </div>
+
+  <p class="tl en-note">English version above · 中文版见上</p>
+</div>
+
+<script>
+  // Follow the stored/browser language, mirroring the homepage behavior.
+  var btn = document.getElementById("toggle");
+  function applyLang(lang) {
+    document.documentElement.className = "lang-" + lang;
+    btn.textContent = lang === "zh" ? "English" : "中文";
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  }
+  btn.addEventListener("click", function () {
+    applyLang(document.documentElement.className === "lang-zh" ? "en" : "zh");
+  });
+  var saved = null;
+  try { saved = localStorage.getItem("fs-lang"); } catch (e) {}
+  applyLang(saved === "en" ? "en" : ((navigator.language || "").toLowerCase().indexOf("zh") === 0 ? "zh" : "en"));
+</script>
+</body>
+</html>
