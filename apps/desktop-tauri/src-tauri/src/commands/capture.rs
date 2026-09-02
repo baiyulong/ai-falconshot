@@ -168,18 +168,24 @@ fn open_editor_window(app: &tauri::AppHandle, path: &str, rect: &Rect) -> Result
     let title =
         crate::i18n::tr(crate::i18n::resolve_lang(), crate::i18n::Str::EditorTitle).to_string();
     app.run_on_main_thread(move || {
-        if let Err(e) =
-            tauri::WebviewWindowBuilder::new(&owner, &label, tauri::WebviewUrl::App(url.into()))
-                .title(title)
-                .decorations(false)
-                .transparent(true)
-                .shadow(false)
-                .resizable(false)
-                .inner_size(win_w / sf, win_h / sf)
-                .position(px / sf, py / sf)
-                .build()
+        match tauri::WebviewWindowBuilder::new(&owner, &label, tauri::WebviewUrl::App(url.into()))
+            .title(title)
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .resizable(false)
+            .inner_size(win_w / sf, win_h / sf)
+            .position(px / sf, py / sf)
+            .build()
         {
-            eprintln!("open_editor_window build failed: {e}");
+            Ok(window) => {
+                // The first capture can land while another app still owns
+                // the foreground (WebView2 init delays activation), which
+                // leaves the editor buried under other windows; force it
+                // to the front (tao works around the foreground lock).
+                let _ = window.set_focus();
+            }
+            Err(e) => eprintln!("open_editor_window build failed: {e}"),
         }
     })
     .map_err(|e| e.to_string())
