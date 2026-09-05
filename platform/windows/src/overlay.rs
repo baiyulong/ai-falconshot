@@ -22,15 +22,133 @@ mod win {
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetSystemMetrics,
         LoadCursorW, PeekMessageW, PostQuitMessage, RegisterClassExW, SetCursor,
-        SetForegroundWindow, SetLayeredWindowAttributes, ShowWindow, TranslateMessage, IDC_CROSS,
-        LWA_ALPHA, MSG, PM_REMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-        SM_YVIRTUALSCREEN, SW_SHOW, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN,
-        WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_RBUTTONDOWN, WM_SETCURSOR, WNDCLASSEXW,
-        WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+        SetForegroundWindow, SetLayeredWindowAttributes, ShowWindow, TranslateMessage, CS_DBLCLKS,
+        HTCLIENT, IDC_ARROW, IDC_CROSS, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
+        IDC_SIZEWE, LWA_ALPHA, MSG, PM_REMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+        SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_SHOW, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
+        WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_RBUTTONDOWN,
+        WM_SETCURSOR, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
 
     /// Brightness of the frozen frame outside the selection (55%).
     const DIM_FACTOR: u8 = 55;
+
+    /// Hit-test zones around an existing selection: corners take precedence
+    /// over edges, and Inside (move) beats Outside (draw a new one).
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Zone {
+        Outside,
+        Inside,
+        L,
+        R,
+        T,
+        B,
+        Tl,
+        Tr,
+        Bl,
+        Br,
+    }
+
+    const CORNER_HIT: i32 = 10;
+    const EDGE_HIT: i32 = 6;
+    /// Minimum selection size while resizing; sel.valid() needs > 2.
+    const MIN_SEL: i32 = 4;
+
+    fn zone_at(sel: SelRect, x: i32, y: i32) -> Zone {
+        if !sel.valid() {
+            return Zone::Outside;
+        }
+        let near_l = (x - sel.l).abs() <= CORNER_HIT;
+        let near_r = (x - sel.r).abs() <= CORNER_HIT;
+        let near_t = (y - sel.t).abs() <= CORNER_HIT;
+        let near_b = (y - sel.b).abs() <= CORNER_HIT;
+        if (near_l || near_r) && (near_t || near_b) {
+            return match (near_l, near_t) {
+                (true, true) => Zone::Tl,
+                (false, true) => Zone::Tr,
+                (true, false) => Zone::Bl,
+                (false, false) => Zone::Br,
+            };
+        }
+        let edge_l = (x - sel.l).abs() <= EDGE_HIT;
+        let edge_r = (x - sel.r).abs() <= EDGE_HIT;
+        let edge_t = (y - sel.t).abs() <= EDGE_HIT;
+        let edge_b = (y - sel.b).abs() <= EDGE_HIT;
+        let inside_x = x > sel.l && x < sel.r;
+        let inside_y = y > sel.t && y < sel.b;
+        if edge_l && inside_y {
+            Zone::L
+        } else if edge_r && inside_y {
+            Zone::R
+        } else if edge_t && inside_x {
+            Zone::T
+        } else if edge_b && inside_x {
+            Zone::B
+        } else if inside_x && inside_y {
+            Zone::Inside
+        } else {
+            Zone::Outside
+        }
+    }
+
+    fn zone_cursor(zone: Zone) -> PCWSTR {
+        match zone {
+            Zone::L | Zone::R => IDC_SIZEWE,
+            Zone::T | Zone::B => IDC_SIZENS,
+            Zone::Tl | Zone::Br => IDC_SIZENWSE,
+            Zone::Tr | Zone::Bl => IDC_SIZENESW,
+            Zone::Inside => IDC_SIZEALL,
+            Zone::Outside => IDC_ARROW,
+        }
+    }
+
+    /// In-progress adjustment after the initial draw (or a later drag).
+    enum Adjust {
+        Move { off_x: i32, off_y: i32 },
+        Resize(Zone),
+    }
+
+    /// Native confirm/cancel mini toolbar shown next to the selection during
+    /// the adjust phase, so confirming is discoverable (WeChat-screenshot
+    /// style). Returns the panel and the two button rects, window-local.
+    fn toolbar_rects(sel: SelRect, cx: i32, cy: i32) -> (RECT, RECT, RECT) {
+        const BW: i32 = 34;
+        const BH: i32 = 26;
+        const GAP: i32 = 4;
+        const PAD: i32 = 4;
+        let total_w = PAD * 2 + BW * 2 + GAP;
+        let total_h = BH + PAD * 2;
+        let bx = (sel.r - total_w).clamp(0, (cx - total_w).max(0));
+        let by = if sel.b + 8 + total_h <= cy {
+            sel.b + 8
+        } else {
+            (sel.t - 8 - total_h).max(0)
+        };
+        (
+            RECT {
+                left: bx,
+                top: by,
+                right: bx + total_w,
+                bottom: by + total_h,
+            },
+            RECT {
+                left: bx + PAD,
+                top: by + PAD,
+                right: bx + PAD + BW,
+                bottom: by + PAD + BH,
+            },
+            RECT {
+                left: bx + PAD + BW + GAP,
+                top: by + PAD,
+                right: bx + PAD + BW + GAP + BW,
+                bottom: by + PAD + BH,
+            },
+        )
+    }
+
+    fn pt_in_rect(x: i32, y: i32, r: &RECT) -> bool {
+        x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+    }
 
     /// Selection in window-local coordinates (virtual screen origin is subtracted).
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -87,6 +205,10 @@ mod win {
         dragging: bool,
         anchor_x: i32,
         anchor_y: i32,
+        adjust: Option<Adjust>,
+        /// Last known cursor position, for WM_SETCURSOR hit-testing.
+        mouse_x: i32,
+        mouse_y: i32,
         confirmed: bool,
         /// Full-screen frame captured before the overlay appeared.
         frozen: Option<image::RgbaImage>,
@@ -104,6 +226,9 @@ mod win {
                 dragging: false,
                 anchor_x: 0,
                 anchor_y: 0,
+                adjust: None,
+                mouse_x: 0,
+                mouse_y: 0,
                 confirmed: false,
                 frozen: None,
             }
@@ -153,6 +278,7 @@ mod win {
 
                 let wc = WNDCLASSEXW {
                     cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                    style: CS_DBLCLKS, // double-click confirms the selection
                     lpfnWndProc: Some(wnd_proc),
                     hInstance: hinstance.into(),
                     hCursor: LoadCursorW(None, IDC_CROSS)?,
@@ -352,63 +478,160 @@ mod win {
     ) -> LRESULT {
         match msg {
             WM_SETCURSOR => {
-                if let Ok(cursor) = LoadCursorW(None, IDC_CROSS) {
-                    let _ = SetCursor(Some(cursor));
+                if (lparam.0 & 0xFFFF) as u16 == HTCLIENT as u16 {
+                    set_zone_cursor();
+                    LRESULT(1)
+                } else {
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-                LRESULT(1)
             }
             WM_LBUTTONDOWN => {
                 let x = (lparam.0 & 0xFFFF) as i16 as i32;
                 let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
-                STATE.with(|s| {
+                let (cx, cy) = virtual_size();
+                let action = STATE.with(|s| {
                     let mut state = s.borrow_mut();
-                    state.dragging = true;
-                    state.anchor_x = x;
-                    state.anchor_y = y;
-                    state.sel = SelRect {
-                        l: x,
-                        t: y,
-                        r: x,
-                        b: y,
-                    };
+                    if state.sel.valid() {
+                        let (panel, confirm, cancel) = toolbar_rects(state.sel, cx, cy);
+                        if pt_in_rect(x, y, &confirm) {
+                            return Some(true);
+                        }
+                        if pt_in_rect(x, y, &cancel) {
+                            return Some(false);
+                        }
+                        if pt_in_rect(x, y, &panel) {
+                            return None; // panel padding: swallow the click
+                        }
+                    }
+                    let zone = zone_at(state.sel, x, y);
+                    match zone {
+                        Zone::Inside => {
+                            state.dragging = false;
+                            state.adjust = Some(Adjust::Move {
+                                off_x: x - state.sel.l,
+                                off_y: y - state.sel.t,
+                            });
+                        }
+                        Zone::L
+                        | Zone::R
+                        | Zone::T
+                        | Zone::B
+                        | Zone::Tl
+                        | Zone::Tr
+                        | Zone::Bl
+                        | Zone::Br => {
+                            state.dragging = false;
+                            state.adjust = Some(Adjust::Resize(zone));
+                        }
+                        Zone::Outside => {
+                            // Start a fresh selection.
+                            state.dragging = true;
+                            state.adjust = None;
+                            state.anchor_x = x;
+                            state.anchor_y = y;
+                            state.sel = SelRect {
+                                l: x,
+                                t: y,
+                                r: x,
+                                b: y,
+                            };
+                        }
+                    }
+                    None
                 });
-                invalidate(hwnd);
+                match action {
+                    Some(confirm) => {
+                        if confirm {
+                            STATE.with(|s| s.borrow_mut().confirmed = true);
+                        }
+                        RUNNING.store(false, Ordering::SeqCst);
+                        PostQuitMessage(0);
+                    }
+                    None => invalidate(hwnd),
+                }
                 LRESULT(0)
             }
             WM_MOUSEMOVE => {
                 let x = (lparam.0 & 0xFFFF) as i16 as i32;
                 let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
+                let (cx, cy) = virtual_size();
                 let changed = STATE.with(|s| {
                     let mut state = s.borrow_mut();
+                    state.mouse_x = x;
+                    state.mouse_y = y;
                     if state.dragging {
                         state.sel = SelRect::from_points(state.anchor_x, state.anchor_y, x, y);
-                        true
-                    } else {
-                        false
+                        return true;
+                    }
+                    match state.adjust {
+                        Some(Adjust::Move { off_x, off_y }) => {
+                            let w = state.sel.width();
+                            let h = state.sel.height();
+                            state.sel.l = (x - off_x).clamp(0, (cx - w).max(0));
+                            state.sel.t = (y - off_y).clamp(0, (cy - h).max(0));
+                            state.sel.r = state.sel.l + w;
+                            state.sel.b = state.sel.t + h;
+                            true
+                        }
+                        Some(Adjust::Resize(zone)) => {
+                            let sel = &mut state.sel;
+                            match zone {
+                                Zone::L => sel.l = x.clamp(0, sel.r - MIN_SEL),
+                                Zone::R => sel.r = x.clamp(sel.l + MIN_SEL, cx),
+                                Zone::T => sel.t = y.clamp(0, sel.b - MIN_SEL),
+                                Zone::B => sel.b = y.clamp(sel.t + MIN_SEL, cy),
+                                Zone::Tl => {
+                                    sel.l = x.clamp(0, sel.r - MIN_SEL);
+                                    sel.t = y.clamp(0, sel.b - MIN_SEL);
+                                }
+                                Zone::Tr => {
+                                    sel.r = x.clamp(sel.l + MIN_SEL, cx);
+                                    sel.t = y.clamp(0, sel.b - MIN_SEL);
+                                }
+                                Zone::Bl => {
+                                    sel.l = x.clamp(0, sel.r - MIN_SEL);
+                                    sel.b = y.clamp(sel.t + MIN_SEL, cy);
+                                }
+                                Zone::Br => {
+                                    sel.r = x.clamp(sel.l + MIN_SEL, cx);
+                                    sel.b = y.clamp(sel.t + MIN_SEL, cy);
+                                }
+                                _ => {}
+                            }
+                            true
+                        }
+                        None => false,
                     }
                 });
                 if changed {
                     invalidate(hwnd);
                 }
+                // The overlay holds mouse capture for its whole lifetime and
+                // Windows does NOT send WM_SETCURSOR while input is captured,
+                // so the cursor must be updated from the move handler.
+                set_zone_cursor();
                 LRESULT(0)
             }
             WM_LBUTTONUP => {
-                // Release confirms immediately: no separate confirm step.
-                let should_confirm = STATE.with(|s| {
+                // Releasing the initial drag enters the adjust phase (edges,
+                // corners, move); confirming is explicit: Enter, double-click
+                // or the toolbar. Any in-flight adjustment ends with the
+                // button — otherwise a released resize would keep tracking
+                // the mouse forever.
+                STATE.with(|s| {
                     let mut state = s.borrow_mut();
-                    if state.dragging {
-                        state.dragging = false;
-                        state.sel.valid()
-                    } else {
-                        false
-                    }
+                    state.dragging = false;
+                    state.adjust = None;
                 });
-                if should_confirm {
+                invalidate(hwnd);
+                LRESULT(0)
+            }
+            WM_LBUTTONDBLCLK => {
+                let confirm = STATE.with(|s| s.borrow().sel.valid());
+                if confirm {
                     STATE.with(|s| s.borrow_mut().confirmed = true);
                     RUNNING.store(false, Ordering::SeqCst);
                     PostQuitMessage(0);
-                } else {
-                    invalidate(hwnd);
                 }
                 LRESULT(0)
             }
@@ -417,13 +640,24 @@ mod win {
                 PostQuitMessage(0);
                 LRESULT(0)
             }
-            WM_KEYDOWN => {
-                if wparam.0 as u32 == 0x1B {
+            WM_KEYDOWN => match wparam.0 as u32 {
+                // Enter confirms the adjustable selection.
+                0x0D => {
+                    let confirm = STATE.with(|s| s.borrow().sel.valid());
+                    if confirm {
+                        STATE.with(|s| s.borrow_mut().confirmed = true);
+                        RUNNING.store(false, Ordering::SeqCst);
+                        PostQuitMessage(0);
+                    }
+                    LRESULT(0)
+                }
+                0x1B => {
                     RUNNING.store(false, Ordering::SeqCst);
                     PostQuitMessage(0);
+                    LRESULT(0)
                 }
-                LRESULT(0)
-            }
+                _ => LRESULT(0),
+            },
             WM_ERASEBKGND => LRESULT(1),
             WM_PAINT => {
                 paint(hwnd);
@@ -506,6 +740,63 @@ mod win {
                 let _ = LineTo(hdc, sel.r, mid_y);
                 SelectObject(hdc, old_pen2);
                 let _ = DeleteObject(cross_pen.into());
+            } else {
+                // Adjustable phase: corner handles show the selection can be
+                // resized (edges too) and moved before confirming.
+                const HS: i32 = 4;
+                let handle_brush = CreateSolidBrush(COLORREF(0x00FFFFFF));
+                let corners = [
+                    (sel.l, sel.t),
+                    (sel.r, sel.t),
+                    (sel.l, sel.b),
+                    (sel.r, sel.b),
+                ];
+                for (hx, hy) in corners {
+                    let rect = RECT {
+                        left: hx - HS,
+                        top: hy - HS,
+                        right: hx + HS,
+                        bottom: hy + HS,
+                    };
+                    FillRect(hdc, &rect, handle_brush);
+                }
+                let _ = DeleteObject(handle_brush.into());
+
+                // Confirm / cancel mini toolbar next to the selection.
+                let (cx, cy) = virtual_size();
+                let (panel, confirm, cancel) = toolbar_rects(sel, cx, cy);
+                let panel_bg = CreateSolidBrush(COLORREF(0x002E1C15));
+                FillRect(hdc, &panel, panel_bg);
+                let _ = DeleteObject(panel_bg.into());
+                let panel_pen = CreatePen(PS_SOLID, 1, COLORREF(0x00452D23));
+                let old_pen = SelectObject(hdc, panel_pen.into());
+                let null_brush = GetStockObject(NULL_BRUSH);
+                let old_brush = SelectObject(hdc, null_brush);
+                let _ = Rectangle(hdc, panel.left, panel.top, panel.right, panel.bottom);
+                SelectObject(hdc, old_pen);
+                SelectObject(hdc, old_brush);
+                let _ = DeleteObject(panel_pen.into());
+
+                // Confirm button: accent background with a white check.
+                let confirm_bg = CreateSolidBrush(COLORREF(0x00FFAE00));
+                FillRect(hdc, &confirm, confirm_bg);
+                let _ = DeleteObject(confirm_bg.into());
+                let white_pen = CreatePen(PS_SOLID, 2, COLORREF(0x00FFFFFF));
+                let old_pen2 = SelectObject(hdc, white_pen.into());
+                let _ = MoveToEx(hdc, confirm.left + 9, confirm.top + 13, None);
+                let _ = LineTo(hdc, confirm.left + 14, confirm.top + 18);
+                let _ = LineTo(hdc, confirm.left + 25, confirm.top + 7);
+
+                // Cancel button: dark gray with a white cross.
+                let cancel_bg = CreateSolidBrush(COLORREF(0x00584238));
+                FillRect(hdc, &cancel, cancel_bg);
+                let _ = DeleteObject(cancel_bg.into());
+                let _ = MoveToEx(hdc, cancel.left + 11, cancel.top + 7, None);
+                let _ = LineTo(hdc, cancel.left + 23, cancel.top + 19);
+                let _ = MoveToEx(hdc, cancel.left + 23, cancel.top + 7, None);
+                let _ = LineTo(hdc, cancel.left + 11, cancel.top + 19);
+                SelectObject(hdc, old_pen2);
+                let _ = DeleteObject(white_pen.into());
             }
 
             let dim_y = if sel.t >= 22 { sel.t - 22 } else { sel.b + 4 };
@@ -526,6 +817,28 @@ mod win {
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, color);
         let _ = TextOutW(hdc, x, y, &wide);
+    }
+
+    /// Pick and set the cursor for the current selection phase. Called from
+    /// WM_MOUSEMOVE — WM_SETCURSOR is not sent while the overlay holds mouse
+    /// capture. Drawing keeps the crosshair; the adjust phase switches per
+    /// zone (edge/corner sizes, move, plain arrow over toolbar/outside).
+    unsafe fn set_zone_cursor() {
+        let cursor = STATE.with(|s| {
+            let st = s.borrow();
+            if st.dragging || !st.sel.valid() {
+                return IDC_CROSS;
+            }
+            let (cx, cy) = virtual_size();
+            let (panel, _, _) = toolbar_rects(st.sel, cx, cy);
+            if pt_in_rect(st.mouse_x, st.mouse_y, &panel) {
+                return IDC_ARROW;
+            }
+            zone_cursor(zone_at(st.sel, st.mouse_x, st.mouse_y))
+        });
+        if let Ok(cursor) = LoadCursorW(None, cursor) {
+            let _ = SetCursor(Some(cursor));
+        }
     }
 
     unsafe fn invalidate(hwnd: HWND) {

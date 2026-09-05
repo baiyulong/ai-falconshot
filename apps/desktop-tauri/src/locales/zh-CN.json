@@ -73,12 +73,14 @@
     "customModelHint": "支持图片输入的模型"
   },
   "editor": {
+    "toolSelect": "选择 / 拖动截图",
     "toolRect": "矩形",
     "toolArrow": "箭头",
     "toolPen": "画笔",
     "toolText": "文字",
     "toolHighlighter": "高亮",
     "strokeWidth": "线条粗细",
+    "fontSize": "文字大小",
     "undo": "撤销 (Ctrl+Z)",
     "redo": "重做 (Ctrl+Y)",
     "pin": "贴图（双击贴图关闭）",

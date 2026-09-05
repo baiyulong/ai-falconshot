@@ -12,7 +12,7 @@ Drag a region and the screenshot is captured the moment you release — annotate
 
 ## Features
 
-- **Region capture**: triggered by the global `F2` hotkey (customizable combo, pausable in Settings), drag and release to capture, `Esc`/right-click to cancel, live size indicator
+- **Region capture**: triggered by the global `F2` hotkey (customizable combo, pausable in Settings), drag a region then fine-tune its edges/corners or move it as a whole, confirm with `Enter` / double-click / the ✓ button, `Esc`/right-click to cancel, live size indicator
 - **Freeze-frame capture**: the screen is frozen when capture mode starts — what you saw is what you get, unaffected by popups
 - **Annotation editor**: rectangle, arrow, pen, highlighter and text with undo/redo; a borderless window overlays the shot exactly in place
 - **Pin to screen**: turn any shot (with annotations) into an always-on-top floating image — drag freely, pin many at once, double-click to close

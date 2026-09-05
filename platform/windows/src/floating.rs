@@ -14,12 +14,142 @@ mod win {
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, RegisterClassExW,
-        SetWindowLongPtrW, SetWindowPos, ShowWindow, UpdateLayeredWindow, GWL_EXSTYLE, HTCAPTION,
-        HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, ULW_ALPHA,
-        WM_DESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_TOPMOST,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, KillTimer,
+        RegisterClassExW, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+        UpdateLayeredWindow, GWLP_USERDATA, GWL_EXSTYLE, HTCAPTION, HWND_TOPMOST, SWP_NOMOVE,
+        SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, ULW_ALPHA, WM_DESTROY, WM_MOUSEWHEEL,
+        WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_TIMER, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_TOPMOST,
         WS_EX_TRANSPARENT, WS_POPUP,
     };
+
+    /// Per-window zoom state, owned by the HWND via GWLP_USERDATA so the
+    /// window procedure can scale the pin on mouse wheel without touching
+    /// the WindowsFloatingWindow stored in the pins registry.
+    struct PinZoom {
+        /// Decorated image (glow border baked in) at scale 1.0.
+        base: image::RgbaImage,
+        /// Current zoom factor relative to `base`.
+        scale: f32,
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+    }
+
+    const ZOOM_STEP: f32 = 1.1;
+    const ZOOM_MIN: f32 = 0.2;
+    const ZOOM_MAX: f32 = 5.0;
+    /// While the wheel keeps spinning the pin re-renders with a fast nearest
+    /// filter; this timer fires once after the last tick and re-renders with
+    /// a smooth filter. Without it a full Triangle resample per wheel tick
+    /// makes zooming feel laggy on large captures.
+    const ZOOM_SETTLE_TIMER_ID: usize = 1;
+    const ZOOM_SETTLE_MS: u32 = 250;
+
+    impl PinZoom {
+        /// Re-render the pin at the current scale. `anchor` is an optional
+        /// screen point that must stay put under the cursor while zooming;
+        /// `smooth` picks the final-quality (slower) filter.
+        unsafe fn apply(&mut self, hwnd: HWND, anchor: Option<(f32, f32)>, smooth: bool) {
+            let (bw, bh) = (self.base.width() as f32, self.base.height() as f32);
+            let nw = ((bw * self.scale).round() as u32).max(16);
+            let nh = ((bh * self.scale).round() as u32).max(16);
+            if let Some((ax, ay)) = anchor {
+                if self.w > 0 && self.h > 0 {
+                    let rx = (ax - self.x as f32) / self.w as f32;
+                    let ry = (ay - self.y as f32) / self.h as f32;
+                    self.x = (ax - rx * nw as f32).round() as i32;
+                    self.y = (ay - ry * nh as f32).round() as i32;
+                }
+            }
+            self.w = nw;
+            self.h = nh;
+            let filter = if smooth {
+                image::imageops::FilterType::Triangle
+            } else {
+                image::imageops::FilterType::Nearest
+            };
+            let resized = image::imageops::resize(&self.base, nw, nh, filter);
+            let _ = ulw_render(hwnd, self.x, self.y, &resized, 255);
+        }
+    }
+
+    /// Push a premultiplied-BGRA RGBA image onto a layered window at (x, y).
+    unsafe fn ulw_render(
+        hwnd: HWND,
+        x: i32,
+        y: i32,
+        image: &image::RgbaImage,
+        alpha: u8,
+    ) -> Result<()> {
+        let (width, height) = image.dimensions();
+
+        let hdc_screen = windows::Win32::Graphics::Gdi::GetDC(None);
+        let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+
+        let mut bmi = BITMAPINFO::default();
+        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = width as i32;
+        bmi.bmiHeader.biHeight = -(height as i32);
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB.0;
+
+        let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
+        let hbitmap = windows::Win32::Graphics::Gdi::CreateDIBSection(
+            Some(hdc_mem),
+            &bmi,
+            DIB_RGB_COLORS,
+            &mut bits,
+            None,
+            0,
+        )
+        .map_err(|e| anyhow::anyhow!("CreateDIBSection failed: {}", e))?;
+
+        let dst = std::slice::from_raw_parts_mut(bits as *mut u8, (width * height * 4) as usize);
+        for (i, pixel) in image.pixels().enumerate() {
+            let offset = i * 4;
+            dst[offset] = pixel[2];
+            dst[offset + 1] = pixel[1];
+            dst[offset + 2] = pixel[0];
+            dst[offset + 3] = pixel[3];
+        }
+
+        let old_obj = SelectObject(hdc_mem, hbitmap.into());
+
+        let pt_src = POINT { x: 0, y: 0 };
+        let size = SIZE {
+            cx: width as i32,
+            cy: height as i32,
+        };
+        let pt_dst = POINT { x, y };
+
+        let blend = BLENDFUNCTION {
+            BlendOp: 0,
+            BlendFlags: 0,
+            SourceConstantAlpha: alpha,
+            AlphaFormat: 1,
+        };
+
+        UpdateLayeredWindow(
+            hwnd,
+            Some(hdc_screen),
+            Some(&pt_dst),
+            Some(&size),
+            Some(hdc_mem),
+            Some(&pt_src),
+            windows::Win32::Foundation::COLORREF(0),
+            Some(&blend),
+            ULW_ALPHA,
+        )?;
+
+        SelectObject(hdc_mem, old_obj);
+        let _ = DeleteObject(hbitmap.into());
+        let _ = DeleteDC(hdc_mem);
+        windows::Win32::Graphics::Gdi::ReleaseDC(None, hdc_screen);
+
+        Ok(())
+    }
 
     pub struct WindowsFloatingWindow {
         state: FloatingState,
@@ -124,81 +254,6 @@ mod win {
         fn get_hwnd(&self) -> HWND {
             HWND(self.hwnd as *mut _)
         }
-
-        unsafe fn render_image(&self, image: &image::RgbaImage) -> Result<()> {
-            let hwnd = self.get_hwnd();
-            let (width, height) = image.dimensions();
-
-            let hdc_screen = windows::Win32::Graphics::Gdi::GetDC(None);
-            let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
-
-            let mut bmi = BITMAPINFO::default();
-            bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
-            bmi.bmiHeader.biWidth = width as i32;
-            bmi.bmiHeader.biHeight = -(height as i32);
-            bmi.bmiHeader.biPlanes = 1;
-            bmi.bmiHeader.biBitCount = 32;
-            bmi.bmiHeader.biCompression = BI_RGB.0;
-
-            let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
-            let hbitmap = windows::Win32::Graphics::Gdi::CreateDIBSection(
-                Some(hdc_mem),
-                &bmi,
-                DIB_RGB_COLORS,
-                &mut bits,
-                None,
-                0,
-            )
-            .map_err(|e| anyhow::anyhow!("CreateDIBSection failed: {}", e))?;
-
-            let dst =
-                std::slice::from_raw_parts_mut(bits as *mut u8, (width * height * 4) as usize);
-            for (i, pixel) in image.pixels().enumerate() {
-                let offset = i * 4;
-                dst[offset] = pixel[2];
-                dst[offset + 1] = pixel[1];
-                dst[offset + 2] = pixel[0];
-                dst[offset + 3] = pixel[3];
-            }
-
-            let old_obj = SelectObject(hdc_mem, hbitmap.into());
-
-            let pt_src = POINT { x: 0, y: 0 };
-            let size = SIZE {
-                cx: width as i32,
-                cy: height as i32,
-            };
-            let pt_dst = POINT {
-                x: self.state.x,
-                y: self.state.y,
-            };
-
-            let blend = BLENDFUNCTION {
-                BlendOp: 0,
-                BlendFlags: 0,
-                SourceConstantAlpha: (self.state.opacity * 255.0) as u8,
-                AlphaFormat: 1,
-            };
-
-            UpdateLayeredWindow(
-                hwnd,
-                Some(hdc_screen),
-                Some(&pt_dst),
-                Some(&size),
-                Some(hdc_mem),
-                Some(&pt_src),
-                windows::Win32::Foundation::COLORREF(0),
-                Some(&blend),
-                ULW_ALPHA,
-            )?;
-
-            SelectObject(hdc_mem, old_obj);
-            let _ = DeleteObject(hbitmap.into());
-            let _ = DeleteDC(hdc_mem);
-            windows::Win32::Graphics::Gdi::ReleaseDC(None, hdc_screen);
-
-            Ok(())
-        }
     }
 
     impl FloatingWindow for WindowsFloatingWindow {
@@ -234,6 +289,48 @@ mod win {
                         match msg {
                             // The whole pinned image drags like a title bar.
                             WM_NCHITTEST => LRESULT(HTCAPTION as isize),
+                            // Mouse wheel zooms the pin around the cursor
+                            // (Windows routes wheel messages to the window
+                            // under the cursor with its default setting).
+                            WM_MOUSEWHEEL => {
+                                let zoom = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut PinZoom;
+                                if !zoom.is_null() {
+                                    let delta = ((wparam.0 >> 16) & 0xFFFF) as u16 as i16;
+                                    let cx = (lparam.0 & 0xFFFF) as u16 as i16 as f32;
+                                    let cy = ((lparam.0 >> 16) & 0xFFFF) as u16 as i16 as f32;
+                                    let z = &mut *zoom;
+                                    let factor = if delta > 0 {
+                                        ZOOM_STEP
+                                    } else {
+                                        1.0 / ZOOM_STEP
+                                    };
+                                    let new_scale = (z.scale * factor).clamp(ZOOM_MIN, ZOOM_MAX);
+                                    if new_scale != z.scale {
+                                        z.scale = new_scale;
+                                        // Fast nearest render keeps the wheel
+                                        // responsive; a settle timer smooths it.
+                                        z.apply(hwnd, Some((cx, cy)), false);
+                                        SetTimer(
+                                            Some(hwnd),
+                                            ZOOM_SETTLE_TIMER_ID,
+                                            ZOOM_SETTLE_MS,
+                                            None,
+                                        );
+                                    }
+                                }
+                                LRESULT(0)
+                            }
+                            WM_TIMER => {
+                                if wparam.0 == ZOOM_SETTLE_TIMER_ID {
+                                    let _ = KillTimer(Some(hwnd), ZOOM_SETTLE_TIMER_ID);
+                                    let zoom =
+                                        GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut PinZoom;
+                                    if !zoom.is_null() {
+                                        (*zoom).apply(hwnd, None, true);
+                                    }
+                                }
+                                LRESULT(0)
+                            }
                             // Double-click closes the pinned image. Never post
                             // WM_QUIT here: pin windows share the app's main
                             // thread event loop.
@@ -241,7 +338,14 @@ mod win {
                                 let _ = DestroyWindow(hwnd);
                                 LRESULT(0)
                             }
-                            WM_DESTROY => DefWindowProcW(hwnd, msg, wparam, lparam),
+                            WM_DESTROY => {
+                                let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+                                if ptr != 0 {
+                                    drop(Box::from_raw(ptr as *mut PinZoom));
+                                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                                }
+                                DefWindowProcW(hwnd, msg, wparam, lparam)
+                            }
                             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
                         }
                     }
@@ -277,7 +381,18 @@ mod win {
                 )?;
 
                 self.hwnd = hwnd.0 as isize;
-                self.render_image(&image)?;
+                // Hand the zoom state to the window procedure; it is freed
+                // on WM_DESTROY.
+                let zoom = Box::into_raw(Box::new(PinZoom {
+                    base: image.clone(),
+                    scale: 1.0,
+                    x: self.state.x,
+                    y: self.state.y,
+                    w: width,
+                    h: height,
+                }));
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, zoom as isize);
+                ulw_render(hwnd, self.state.x, self.state.y, &image, 255)?;
                 let _ = ShowWindow(hwnd, SW_SHOW);
 
                 Ok(())

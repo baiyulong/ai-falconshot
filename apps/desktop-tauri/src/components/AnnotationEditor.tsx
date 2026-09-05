@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { syncLanguageFromSettings } from "../i18n";
 
-type AnnotationTool = "rect" | "arrow" | "pen" | "text" | "highlighter";
+type AnnotationTool = "select" | "rect" | "arrow" | "pen" | "text" | "highlighter";
 
 interface Point {
   x: number;
@@ -19,6 +19,7 @@ interface AnnotationObj {
   color: string;
   width: number;
   text?: string;
+  fontSize?: number;
 }
 
 interface OcrResult {
@@ -74,6 +75,15 @@ function editorQuery() {
 }
 
 const TOOLS: { id: AnnotationTool; icon: ReactNode; titleKey: string }[] = [
+  {
+    id: "select",
+    titleKey: "editor.toolSelect",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M4 2 L12 9 L8.5 9.5 L10.5 13.5 L8.5 14.5 L6.5 10.5 L4 13 Z" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
   {
     id: "rect",
     titleKey: "editor.toolRect",
@@ -176,9 +186,10 @@ export default function AnnotationEditor() {
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [objects, setObjects] = useState<AnnotationObj[]>([]);
   const [redoStack, setRedoStack] = useState<AnnotationObj[]>([]);
-  const [tool, setTool] = useState<AnnotationTool>("rect");
+  const [tool, setTool] = useState<AnnotationTool>("select");
   const [color, setColor] = useState("#FF0000");
   const [strokeWidth, setStrokeWidth] = useState(3);
+  const [fontSize, setFontSize] = useState(18);
   const [drawing, setDrawing] = useState(false);
   const [current, setCurrent] = useState<AnnotationObj | null>(null);
   const [textInput, setTextInput] = useState<{ x: number; y: number; visible: boolean }>({
@@ -186,6 +197,8 @@ export default function AnnotationEditor() {
     y: 0,
     visible: false,
   });
+  // Dragging the open input around repositions it before commit.
+  const [inputDrag, setInputDrag] = useState<{ dx: number; dy: number } | null>(null);
   const [textValue, setTextValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
@@ -255,8 +268,39 @@ export default function AnnotationEditor() {
     return () => document.removeEventListener("click", close);
   }, [widthMenuOpen]);
 
+  // Focus the text input after it mounts — a synchronous focus() right
+  // after setState races the render and silently fails.
+  useEffect(() => {
+    if (!textInput.visible) return;
+    const raf = requestAnimationFrame(() => {
+      (document.getElementById("text-input") as HTMLInputElement | null)?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [textInput.visible]);
+
+  // Reposition the input while it is being dragged by its text area.
+  useEffect(() => {
+    if (!inputDrag) return;
+    const move = (e: MouseEvent) => {
+      setTextInput((t) => ({
+        ...t,
+        x: e.clientX - inputDrag.dx,
+        y: e.clientY - inputDrag.dy,
+      }));
+    };
+    const up = () => setInputDrag(null);
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+  }, [inputDrag]);
+
   function onToolbarMouseDown(e: React.MouseEvent) {
-    if ((e.target as HTMLElement).closest("button")) return;
+    // Buttons and form controls handle their own clicks; a native window
+    // drag started on a <select> would swallow its dropdown entirely.
+    if ((e.target as HTMLElement).closest("button, select, input, option")) return;
     e.preventDefault();
     invoke("start_window_drag").catch(() => {});
   }
@@ -344,7 +388,10 @@ export default function AnnotationEditor() {
       }
       case "text": {
         if (!obj.text) break;
-        ctx.font = `${obj.width * 6}px "Microsoft YaHei", sans-serif`;
+        ctx.font = `${obj.fontSize ?? obj.width * 6}px "Microsoft YaHei", sans-serif`;
+        // Align with the on-screen input box: its text top starts at the
+        // click point, so the baked text must anchor the same way.
+        ctx.textBaseline = "top";
         ctx.fillText(obj.text, obj.points[0].x, obj.points[0].y);
         break;
       }
@@ -363,10 +410,24 @@ export default function AnnotationEditor() {
   }
 
   function onMouseDown(e: React.MouseEvent) {
+    if (tool === "select") {
+      // Selection tool: dragging the image moves the whole editor window.
+      e.preventDefault();
+      invoke("start_window_drag").catch(() => {});
+      return;
+    }
     if (tool === "text") {
+      // preventDefault is essential: the mousedown default action would move
+      // focus back to <body>, blurring the freshly-mounted input — whose
+      // onBlur commits and unmounts it before a single keystroke lands.
+      e.preventDefault();
+      if (textInput.visible) {
+        // Clicking elsewhere commits the text at its current position and
+        // opens a fresh input at the new spot.
+        commitText();
+      }
       setTextInput({ x: e.clientX, y: e.clientY, visible: true });
       setTextValue("");
-      (document.getElementById("text-input") as HTMLInputElement)?.focus();
       return;
     }
     const pos = getPos(e);
@@ -407,6 +468,7 @@ export default function AnnotationEditor() {
         points: [{ x, y }],
         color,
         width: strokeWidth,
+        fontSize,
         text: textValue,
       };
       setObjects((prev) => [...prev, obj]);
@@ -580,7 +642,13 @@ export default function AnnotationEditor() {
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
             style={{ width: disp.w, height: disp.h }}
-            className="block cursor-crosshair"
+            className={`block ${
+              tool === "select"
+                ? "cursor-move"
+                : tool === "text"
+                  ? "cursor-text"
+                  : "cursor-crosshair"
+            }`}
           />
           <div className="pointer-events-none absolute -inset-px border border-[#00AEFF] shadow-[0_0_14px_rgba(0,174,255,0.5)]" />
         </div>
@@ -676,6 +744,21 @@ export default function AnnotationEditor() {
                   </div>
                 )}
               </div>
+
+              {tool === "text" && (
+                <select
+                  value={fontSize}
+                  onChange={(e) => setFontSize(Number(e.target.value))}
+                  title={t("editor.fontSize")}
+                  className="px-1 py-1 rounded text-xs bg-gray-800 text-gray-300 border border-gray-700 outline-none"
+                >
+                  {[14, 18, 24, 32, 48].map((s) => (
+                    <option key={s} value={s}>
+                      {s}px
+                    </option>
+                  ))}
+                </select>
+              )}
 
               <div className="w-px h-6 bg-gray-700" />
 
@@ -833,7 +916,9 @@ export default function AnnotationEditor() {
         </div>
       </div>
 
-      {/* Text input overlay */}
+      {/* Text input overlay: transparent and font-matched to the canvas
+          drawing (strokeWidth*6 YaHei, annotation color) so typing is
+          WYSIWYG; drag it to reposition before committing. */}
       {textInput.visible && (
         <input
           id="text-input"
@@ -845,8 +930,21 @@ export default function AnnotationEditor() {
             if (e.key === "Escape") setTextInput({ x: 0, y: 0, visible: false });
           }}
           onBlur={commitText}
-          className="fixed z-50 px-2 py-1 text-sm bg-white text-black border-2 border-primary rounded shadow-lg"
-          style={{ left: textInput.x, top: textInput.y }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            setInputDrag({ dx: e.clientX - textInput.x, dy: e.clientY - textInput.y });
+          }}
+          className="fixed z-50 bg-transparent outline-none border border-dashed border-primary/60 cursor-move"
+          style={{
+            left: textInput.x,
+            top: textInput.y,
+            color,
+            caretColor: color,
+            fontFamily: '"Microsoft YaHei", sans-serif',
+            fontSize,
+            lineHeight: 1.1,
+            padding: 0,
+          }}
           placeholder={t("editor.textPlaceholder")}
           autoFocus
         />

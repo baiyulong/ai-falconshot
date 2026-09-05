@@ -73,12 +73,14 @@
     "customModelHint": "a vision-capable model"
   },
   "editor": {
+    "toolSelect": "Select / drag screenshot",
     "toolRect": "Rectangle",
     "toolArrow": "Arrow",
     "toolPen": "Pen",
     "toolText": "Text",
     "toolHighlighter": "Highlighter",
     "strokeWidth": "Stroke width",
+    "fontSize": "Font size",
     "undo": "Undo (Ctrl+Z)",
     "redo": "Redo (Ctrl+Y)",
     "pin": "Pin to screen (double-click pin to close)",

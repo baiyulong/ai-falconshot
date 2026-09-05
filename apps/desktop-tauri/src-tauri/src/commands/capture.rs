@@ -95,7 +95,8 @@ fn save_image(img: &image::RgbaImage) -> Result<String, String> {
 /// main window) so the webview composition always matches the geometry.
 fn open_editor_window(app: &tauri::AppHandle, path: &str, rect: &Rect) -> Result<(), String> {
     const TOOLBAR_H_LOGICAL: f64 = 56.0;
-    const TOOLBAR_MIN_W_LOGICAL: f64 = 640.0;
+    /// Fits the full toolbar (including the select tool) below small captures.
+    const TOOLBAR_MIN_W_LOGICAL: f64 = 700.0;
     /// Transparent margin around the image so the outer glow is not clipped
     /// by the window edge.
     const GLOW_PAD_LOGICAL: f64 = 12.0;
