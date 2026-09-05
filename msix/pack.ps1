@@ -8,11 +8,17 @@
 param(
   [Parameter(Mandatory = $true)][string]$IdentityName,
   [Parameter(Mandatory = $true)][string]$Publisher,
-  [string]$Version = "0.2.0.0",
-  [string]$ExePath = "..\target\release\falconshot-desktop.exe"
+  [string]$Version = "0.2.0.0"
 )
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+
+# Build the exe with the custom-protocol feature: without it the app tries
+# to load the vite dev server (127.0.0.1:5173) even in release mode and the
+# main window shows ERR_CONNECTION_REFUSED on machines without the dev server.
+cargo build --release -p falconshot-desktop --features custom-protocol
+if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+$ExePath = "..\target\release\falconshot-desktop.exe"
 
 $stage = Join-Path $PSScriptRoot "stage"
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
