@@ -8,7 +8,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$IdentityName,
   [Parameter(Mandatory = $true)][string]$Publisher,
-  [string]$Version = "0.2.0.0"
+  [string]$Version = "0.2.1.0"
 )
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
