@@ -23,3 +23,8 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Local tooling & MSIX build products
+.zcode/
+msix/stage/
+msix/*.msix
